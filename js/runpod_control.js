@@ -733,11 +733,11 @@ window.addEventListener("resize", () => {
 
 // Extension registration
 app.registerExtension({
-    name: "ComfyUI.RunPodControl",
+    name: "ComfyUI_RunPod_Control",
     settings: [
         {
             id: "runpod.shutdown_minutes",
-            category: ["RunPod Control", "Timer Duration (Minutes)"],
+            category: ["RunPod Control", "Shutdown Timer", "Duration"],
             name: "Shutdown Duration (minutes)",
             type: "number",
             defaultValue: 30,
@@ -746,7 +746,7 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_type",
-            category: ["RunPod Control", "FileBrowser Mode"],
+            category: ["RunPod Control", "FileBrowser", "URL Mode"],
             name: "FileBrowser URL Mode",
             type: "combo",
             defaultValue: "relative_path",
@@ -758,7 +758,7 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_relative_path",
-            category: ["RunPod Control", "FileBrowser Relative Path"],
+            category: ["RunPod Control", "FileBrowser", "Relative Path"],
             name: "FileBrowser Relative Path",
             type: "text",
             defaultValue: "/files/",
@@ -766,7 +766,7 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_port",
-            category: ["RunPod Control", "FileBrowser Port"],
+            category: ["RunPod Control", "FileBrowser", "Local Port"],
             name: "FileBrowser Local Port",
             type: "number",
             defaultValue: 8080,
@@ -774,7 +774,7 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_visibility",
-            category: ["RunPod Control", "FileBrowser Visibility"],
+            category: ["RunPod Control", "FileBrowser", "Visibility"],
             name: "FileBrowser Visibility",
             type: "combo",
             defaultValue: "auto_detect",
@@ -786,7 +786,7 @@ app.registerExtension({
         },
         {
             id: "runpod.shutdown_action",
-            category: ["RunPod Control", "Shutdown Behavior"],
+            category: ["RunPod Control", "Shutdown Timer", "Shutdown Behavior"],
             name: "Shutdown Behavior",
             type: "combo",
             defaultValue: "stop_and_remove",
