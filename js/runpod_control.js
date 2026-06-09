@@ -115,6 +115,8 @@ async function fetchRunPodStatus() {
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
         
+        console.log("[RunPod Control] Detected RunPod status:", runpodStatus);
+        
         const forceShow = getFileBrowserVisibility() === "always_show";
         if (runpodStatus.is_runpod) {
             if (runpodStatus.filebrowser_active || forceShow) {
@@ -538,7 +540,6 @@ function hideCountdownOverlay() {
     }
 }
 
-// Setup top action bar UI components
 // Finder to find Comfy's Run button or action bar container to insert next to it
 function findRunButtonGroup() {
     let runBtn = document.querySelector(".comfy-play-button") || 
@@ -549,7 +550,12 @@ function findRunButtonGroup() {
         const buttons = document.querySelectorAll("button");
         for (const btn of buttons) {
             const text = btn.textContent.trim().toLowerCase();
-            if (text === "run" || text === "queue" || text === "queue prompt") {
+            if (
+                (text === "run" || text === "queue" || text === "queue prompt" || 
+                 text.startsWith("run ") || text.startsWith("queue ") || 
+                 text.startsWith("run\n") || text.startsWith("queue\n")) &&
+                !btn.closest("#runpod-control-container")
+            ) {
                 runBtn = btn;
                 break;
             }
