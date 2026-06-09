@@ -43,21 +43,36 @@ async def get_runpod_status(request):
         filebrowser_port = 8080
         
     filebrowser_active = False
+    detected_port = None
     filebrowser_url = None
     output_url = None
     
     if is_runpod and pod_id:
-        # Check if FileBrowser port is open locally
-        filebrowser_active = await check_port_open("127.0.0.1", filebrowser_port, timeout=1.0)
-        if filebrowser_active:
-            # Build proxy URLs using RunPod's proxy URL naming scheme
-            filebrowser_url = f"https://{pod_id}-{filebrowser_port}.proxy.runpod.net/files/ComfyUI/"
-            output_url = f"https://{pod_id}-{filebrowser_port}.proxy.runpod.net/files/ComfyUI/output/"
+        # 1. First test the user-configured port
+        if await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
+            filebrowser_active = True
+            detected_port = filebrowser_port
+        else:
+            # 2. Probe common fallback ports (excluding 8188 to avoid matching ComfyUI itself)
+            fallback_ports = [8080, 8081, 7860, 7861, 8000, 3000, 80]
+            for p in fallback_ports:
+                if p == filebrowser_port:
+                    continue
+                if await check_port_open("127.0.0.1", p, timeout=0.3):
+                    filebrowser_active = True
+                    detected_port = p
+                    break
+        
+        if filebrowser_active and detected_port:
+            # Build proxy URLs using the detected active port
+            filebrowser_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/"
+            output_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/output/"
 
     return web.json_response({
         "is_runpod": is_runpod,
         "pod_id": pod_id,
         "filebrowser_active": filebrowser_active,
+        "filebrowser_port": detected_port,
         "filebrowser_url": filebrowser_url,
         "output_url": output_url
     })

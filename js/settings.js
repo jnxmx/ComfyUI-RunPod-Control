@@ -41,6 +41,18 @@ app.registerExtension({
       tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active)."
     },
     {
+      id: "runpod.filebrowser_visibility",
+      category: ["RunPod Control", "FileBrowser Visibility"],
+      name: "FileBrowser Visibility",
+      type: "combo",
+      defaultValue: "auto_detect",
+      tooltip: "Choose whether the button should auto-hide when the FileBrowser port check fails, or be permanently displayed.",
+      options: [
+        { value: "auto_detect", text: "Auto-detect service status" },
+        { value: "always_show", text: "Always show button" }
+      ]
+    },
+    {
       id: "runpod.shutdown_action",
       category: ["RunPod Control", "Shutdown Behavior"],
       name: "Shutdown Behavior",

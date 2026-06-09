@@ -86,6 +86,16 @@ function getFileBrowserRelativePath() {
     return "/files/";
 }
 
+// Fetch configured FileBrowser visibility behavior
+function getFileBrowserVisibility() {
+    const settingsUi = app?.ui?.settings;
+    if (settingsUi?.getSettingValue) {
+        const val = settingsUi.getSettingValue("runpod.filebrowser_visibility");
+        if (typeof val === "string") return val;
+    }
+    return "auto_detect";
+}
+
 // Fetch configured shutdown behavior
 function getShutdownAction() {
     const settingsUi = app?.ui?.settings;
@@ -104,19 +114,28 @@ async function fetchRunPodStatus() {
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
         
-        // Override URLs dynamically if using relative path reverse proxy mode
-        if (runpodStatus.is_runpod && runpodStatus.filebrowser_active) {
-            const fbType = getFileBrowserType();
-            if (fbType === "relative_path") {
-                const subpath = getFileBrowserRelativePath();
-                // Ensure correct leading/trailing slashes
-                const leadSlash = subpath.startsWith("/") ? "" : "/";
-                const trailSlash = subpath.endsWith("/") ? "" : "/";
-                const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
-                const origin = window.location.origin.replace(/\/$/, "");
+        const forceShow = getFileBrowserVisibility() === "always_show";
+        if (runpodStatus.is_runpod) {
+            if (runpodStatus.filebrowser_active || forceShow) {
+                // If forced, ensure active state is simulated
+                runpodStatus.filebrowser_active = true;
                 
-                runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
-                runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
+                const fbType = getFileBrowserType();
+                if (fbType === "relative_path") {
+                    const subpath = getFileBrowserRelativePath();
+                    const leadSlash = subpath.startsWith("/") ? "" : "/";
+                    const trailSlash = subpath.endsWith("/") ? "" : "/";
+                    const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
+                    const origin = window.location.origin.replace(/\/$/, "");
+                    
+                    runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
+                    runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
+                } else if (forceShow && !runpodStatus.filebrowser_url) {
+                    // Fallback URL generation if separate port was selected but port check failed
+                    const podId = runpodStatus.pod_id || window.location.hostname;
+                    runpodStatus.filebrowser_url = `https://${podId}-${port}.proxy.runpod.net/files/ComfyUI/`;
+                    runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net/files/ComfyUI/output/`;
+                }
             }
         }
         return runpodStatus.is_runpod;
