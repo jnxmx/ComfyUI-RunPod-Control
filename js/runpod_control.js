@@ -519,25 +519,82 @@ function hideCountdownOverlay() {
 }
 
 // Setup top action bar UI components
+// Finder to find Comfy's Run button or action bar container to insert next to it
+function findRunButtonGroup() {
+    let runBtn = document.querySelector(".comfy-play-button") || 
+                 document.querySelector(".comfyui-queue-button") ||
+                 document.getElementById("queue-button");
+    
+    if (!runBtn) {
+        const buttons = document.querySelectorAll("button");
+        for (const btn of buttons) {
+            const text = btn.textContent.trim().toLowerCase();
+            if (text === "run" || text === "queue" || text === "queue prompt") {
+                runBtn = btn;
+                break;
+            }
+        }
+    }
+    
+    if (runBtn) {
+        return runBtn.closest(".comfyui-button-group") || runBtn.closest(".comfy-menu-queue-group") || runBtn;
+    }
+    return null;
+}
+
+// Setup top action bar UI components
 function decorateButtons() {
-    const timerBtn = document.querySelector(TIMER_BUTTON_SELECTOR);
-    if (timerBtn && !timerButtonVisuals.has(timerBtn)) {
-        // Customize timer button contents
-        timerBtn.style.padding = "6px 12px";
-        timerBtn.style.minWidth = "110px";
-        timerBtn.innerHTML = `
-            <span class="rp-timer-wrap" style="display:flex; align-items:center; gap:6px;">
-                <span class="pi pi-power-off"></span>
-                <span class="rp-timer-label">shutdown in ${getConfiguredMinutes()}m</span>
-            </span>
-        `;
+    if (!runpodStatus.is_runpod) return;
+
+    const targetGroup = findRunButtonGroup();
+    if (!targetGroup) return;
+
+    let container = document.getElementById("runpod-control-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "runpod-control-container";
+        Object.assign(container.style, {
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            marginRight: "8px",
+            marginLeft: "4px",
+            verticalAlign: "middle"
+        });
+    }
+
+    // Insert container before the Run Button Group
+    if (container.parentNode !== targetGroup.parentNode || container.nextSibling !== targetGroup) {
+        targetGroup.parentNode.insertBefore(container, targetGroup);
+    }
+
+    // 1. Timer button setup
+    let timerBtn = container.querySelector(TIMER_BUTTON_SELECTOR);
+    if (!timerBtn) {
+        timerBtn = document.createElement("button");
+        timerBtn.className = "comfyui-button comfy-menu-btn";
+        timerBtn.setAttribute("aria-label", TIMER_BUTTON_TOOLTIP);
+        timerBtn.setAttribute("title", TIMER_BUTTON_TOOLTIP);
+        Object.assign(timerBtn.style, {
+            padding: "6px 12px",
+            minWidth: "110px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            borderRadius: "4px",
+            fontSize: "12px",
+            fontWeight: "500",
+            border: "1px solid var(--interface-stroke, #3c3c3c)",
+            background: "var(--primary-bg, #222)",
+            color: "var(--input-text, #ddd)"
+        });
 
         timerBtn.addEventListener("mouseenter", (e) => {
             const labelSpan = timerBtn.querySelector(".rp-timer-label");
             if (labelSpan && timerState.enabled) {
                 labelSpan.textContent = "reset timer";
             }
-            // Show dropdown list
             const menu = ensureTimerDropdown(timerBtn);
             const rect = timerBtn.getBoundingClientRect();
             menu.style.left = `${Math.round(rect.left)}px`;
@@ -551,8 +608,6 @@ function decorateButtons() {
                 const mins = Math.ceil(timerState.secondsLeft / 60);
                 labelSpan.textContent = timerState.jobActive ? `shutdown in ${getConfiguredMinutes()}m` : `shutdown in ${mins}m`;
             }
-            
-            // Check if pointer went to dropdown
             setTimeout(() => {
                 if (timerDropdownMenu && !timerDropdownMenu.matches(":hover") && !timerBtn.matches(":hover")) {
                     timerDropdownMenu.style.display = "none";
@@ -568,52 +623,82 @@ function decorateButtons() {
             }
         });
 
-        timerButtonVisuals.set(timerBtn, true);
+        container.appendChild(timerBtn);
     }
 
-    const fbBtn = document.querySelector(FB_BUTTON_SELECTOR);
-    if (fbBtn && !fbButtonVisuals.has(fbBtn)) {
-        if (!runpodStatus.filebrowser_active) {
-            fbBtn.style.display = "none";
-            return;
-        }
-
-        fbBtn.style.display = "";
-        fbBtn.style.padding = "6px 12px";
-        fbBtn.innerHTML = `
-            <span class="rp-fb-wrap" style="display:flex; align-items:center; gap:6px;">
-                <span class="pi pi-folder"></span>
-                <span>FileBrowser</span>
+    if (!timerBtn.querySelector(".rp-timer-wrap")) {
+        timerBtn.innerHTML = `
+            <span class="rp-timer-wrap" style="display:flex; align-items:center; gap:6px;">
+                <span class="pi pi-power-off"></span>
+                <span class="rp-timer-label">shutdown in ${getConfiguredMinutes()}m</span>
             </span>
         `;
-
-        fbBtn.addEventListener("mouseenter", (e) => {
-            if (runpodStatus.output_url) {
-                const menu = ensureFileBrowserDropdown(fbBtn);
-                const rect = fbBtn.getBoundingClientRect();
-                menu.style.left = `${Math.round(rect.left)}px`;
-                menu.style.top = `${Math.round(rect.bottom + 6)}px`;
-                menu.style.display = "flex";
-            }
-        });
-
-        fbBtn.addEventListener("mouseleave", () => {
-            setTimeout(() => {
-                if (fbDropdownMenu && !fbDropdownMenu.matches(":hover") && !fbBtn.matches(":hover")) {
-                    fbDropdownMenu.style.display = "none";
-                }
-            }, 100);
-        });
-
-        fbBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (runpodStatus.filebrowser_url) {
-                window.open(runpodStatus.filebrowser_url, "_blank");
-            }
-        });
-
-        fbButtonVisuals.set(fbBtn, true);
     }
+
+    // 2. FileBrowser button setup
+    let fbBtn = container.querySelector(FB_BUTTON_SELECTOR);
+    if (runpodStatus.filebrowser_active) {
+        if (!fbBtn) {
+            fbBtn = document.createElement("button");
+            fbBtn.className = "comfyui-button comfy-menu-btn";
+            fbBtn.setAttribute("aria-label", FB_BUTTON_TOOLTIP);
+            fbBtn.setAttribute("title", FB_BUTTON_TOOLTIP);
+            Object.assign(fbBtn.style, {
+                padding: "6px 12px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: "500",
+                border: "1px solid var(--interface-stroke, #3c3c3c)",
+                background: "var(--primary-bg, #222)",
+                color: "var(--input-text, #ddd)"
+            });
+
+            fbBtn.addEventListener("mouseenter", (e) => {
+                if (runpodStatus.output_url) {
+                    const menu = ensureFileBrowserDropdown(fbBtn);
+                    const rect = fbBtn.getBoundingClientRect();
+                    menu.style.left = `${Math.round(rect.left)}px`;
+                    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
+                    menu.style.display = "flex";
+                }
+            });
+
+            fbBtn.addEventListener("mouseleave", () => {
+                setTimeout(() => {
+                    if (fbDropdownMenu && !fbDropdownMenu.matches(":hover") && !fbBtn.matches(":hover")) {
+                        fbDropdownMenu.style.display = "none";
+                    }
+                }, 100);
+            });
+
+            fbBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (runpodStatus.filebrowser_url) {
+                    window.open(runpodStatus.filebrowser_url, "_blank");
+                }
+            });
+
+            container.appendChild(fbBtn);
+        }
+
+        if (!fbBtn.querySelector(".rp-fb-wrap")) {
+            fbBtn.innerHTML = `
+                <span class="rp-fb-wrap" style="display:flex; align-items:center; gap:6px;">
+                    <span class="pi pi-folder"></span>
+                    <span>FileBrowser</span>
+                </span>
+            `;
+        }
+        fbBtn.style.display = "";
+    } else if (fbBtn) {
+        fbBtn.style.display = "none";
+    }
+
+    updateTimerButtonUI();
 }
 
 // Global click/resize listeners to auto-dismiss menus
@@ -628,37 +713,13 @@ window.addEventListener("resize", () => {
 // Extension registration
 app.registerExtension({
     name: "ComfyUI.RunPodControl",
-    actionBarButtons: [
-        {
-            icon: "pi pi-power-off",
-            tooltip: TIMER_BUTTON_TOOLTIP,
-            onClick: () => {} // Overridden during decoration
-        },
-        {
-            icon: "pi pi-folder",
-            tooltip: FB_BUTTON_TOOLTIP,
-            onClick: () => {} // Overridden during decoration
-        }
-    ],
     async setup() {
-        // Check if we are running in RunPod first
         const isRunPod = await fetchRunPodStatus();
-        if (!isRunPod) {
-            // Hide custom buttons if not on RunPod
-            const observer = new MutationObserver(() => {
-                const timerBtn = document.querySelector(TIMER_BUTTON_SELECTOR);
-                const fbBtn = document.querySelector(FB_BUTTON_SELECTOR);
-                if (timerBtn) timerBtn.style.display = "none";
-                if (fbBtn) fbBtn.style.display = "none";
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-            return;
-        }
+        if (!isRunPod) return;
 
-        // Initialize state
         timerState.secondsLeft = getConfiguredMinutes() * 60;
 
-        // MutationObserver to decorate buttons dynamically when action bar renders/updates
+        // MutationObserver to place buttons dynamically when action bar renders/updates
         const uiObserver = new MutationObserver(() => {
             decorateButtons();
         });
@@ -680,7 +741,6 @@ app.registerExtension({
             }
         });
 
-        // Initialize timers & job detection
         setupJobDetection();
         startTimerCountdown();
     }
