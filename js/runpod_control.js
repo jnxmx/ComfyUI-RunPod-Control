@@ -30,6 +30,7 @@ let fbDropdownMenu = null;
 let countdownOverlay = null;
 let timerButtonVisuals = new Map();
 let fbButtonVisuals = new Map();
+let decorateQueued = false;
 
 // Helper: Show notification toast
 function showToast(summary, detail, severity = "info") {
@@ -561,6 +562,15 @@ function findRunButtonGroup() {
     return null;
 }
 
+function queueDecorateButtons() {
+    if (decorateQueued) return;
+    decorateQueued = true;
+    requestAnimationFrame(() => {
+        decorateQueued = false;
+        decorateButtons();
+    });
+}
+
 // Setup top action bar UI components
 function decorateButtons() {
     if (!runpodStatus.is_runpod) return;
@@ -804,8 +814,23 @@ app.registerExtension({
             timerState.secondsLeft = getConfiguredMinutes() * 60;
 
             // MutationObserver to place buttons dynamically when action bar renders/updates
-            const uiObserver = new MutationObserver(() => {
-                decorateButtons();
+            const uiObserver = new MutationObserver((mutations) => {
+                let selfTriggered = false;
+                for (const m of mutations) {
+                    const target = m.target;
+                    if (target && target.closest && (
+                        target.closest("#runpod-control-container") ||
+                        target.closest("#runpod-timer-dropdown") ||
+                        target.closest("#runpod-fb-dropdown") ||
+                        target.closest("#runpod-countdown-overlay")
+                    )) {
+                        selfTriggered = true;
+                        break;
+                    }
+                }
+                if (!selfTriggered) {
+                    queueDecorateButtons();
+                }
             });
             uiObserver.observe(document.body, { childList: true, subtree: true });
 
