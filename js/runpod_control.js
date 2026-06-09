@@ -732,35 +732,38 @@ window.addEventListener("resize", () => {
 // Extension registration
 app.registerExtension({
     name: "ComfyUI.RunPodControl",
-    async setup() {
-        const isRunPod = await fetchRunPodStatus();
-        if (!isRunPod) return;
+    setup() {
+        fetchRunPodStatus().then((isRunPod) => {
+            if (!isRunPod) return;
 
-        timerState.secondsLeft = getConfiguredMinutes() * 60;
+            timerState.secondsLeft = getConfiguredMinutes() * 60;
 
-        // MutationObserver to place buttons dynamically when action bar renders/updates
-        const uiObserver = new MutationObserver(() => {
-            decorateButtons();
-        });
-        uiObserver.observe(document.body, { childList: true, subtree: true });
+            // MutationObserver to place buttons dynamically when action bar renders/updates
+            const uiObserver = new MutationObserver(() => {
+                decorateButtons();
+            });
+            uiObserver.observe(document.body, { childList: true, subtree: true });
 
-        // Set up drop-down menus logic
-        document.body.addEventListener("mouseover", (e) => {
-            if (timerDropdownMenu && timerDropdownMenu.style.display === "flex") {
-                const timerBtn = document.querySelector(TIMER_BUTTON_SELECTOR);
-                if (!timerDropdownMenu.contains(e.target) && !timerBtn?.contains(e.target)) {
-                    timerDropdownMenu.style.display = "none";
+            // Set up drop-down menus logic
+            document.body.addEventListener("mouseover", (e) => {
+                if (timerDropdownMenu && timerDropdownMenu.style.display === "flex") {
+                    const timerBtn = document.querySelector(TIMER_BUTTON_SELECTOR);
+                    if (!timerDropdownMenu.contains(e.target) && !timerBtn?.contains(e.target)) {
+                        timerDropdownMenu.style.display = "none";
+                    }
                 }
-            }
-            if (fbDropdownMenu && fbDropdownMenu.style.display === "flex") {
-                const fbBtn = document.querySelector(FB_BUTTON_SELECTOR);
-                if (!fbDropdownMenu.contains(e.target) && !fbBtn?.contains(e.target)) {
-                    fbDropdownMenu.style.display = "none";
+                if (fbDropdownMenu && fbDropdownMenu.style.display === "flex") {
+                    const fbBtn = document.querySelector(FB_BUTTON_SELECTOR);
+                    if (!fbDropdownMenu.contains(e.target) && !fbBtn?.contains(e.target)) {
+                        fbDropdownMenu.style.display = "none";
+                    }
                 }
-            }
-        });
+            });
 
-        setupJobDetection();
-        startTimerCountdown();
+            setupJobDetection();
+            startTimerCountdown();
+        }).catch((err) => {
+            console.error("[RunPod Control] Error in setup:", err);
+        });
     }
 });
