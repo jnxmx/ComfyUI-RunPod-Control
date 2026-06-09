@@ -13,12 +13,32 @@ app.registerExtension({
       attrs: { min: 1, max: 1440, step: 1 }
     },
     {
+      id: "runpod.filebrowser_type",
+      category: ["RunPod Control", "FileBrowser Mode"],
+      name: "FileBrowser URL Mode",
+      type: "combo",
+      defaultValue: "relative_path",
+      tooltip: "Choose whether FileBrowser is served as a subpath on Comfy's URL (via Nginx proxy) or on a separate RunPod port.",
+      options: [
+        { value: "relative_path", text: "ComfyUI Subpath (e.g. /files/ via Nginx)" },
+        { value: "separate_port", text: "Separate Proxy Port (e.g. 8080)" }
+      ]
+    },
+    {
+      id: "runpod.filebrowser_relative_path",
+      category: ["RunPod Control", "FileBrowser Relative Path"],
+      name: "FileBrowser Relative Path",
+      type: "text",
+      defaultValue: "/files/",
+      tooltip: "The subpath route on your main URL that routes to FileBrowser."
+    },
+    {
       id: "runpod.filebrowser_port",
       category: ["RunPod Control", "FileBrowser Port"],
-      name: "FileBrowser Port",
+      name: "FileBrowser Local Port",
       type: "number",
       defaultValue: 8080,
-      tooltip: "The local port that FileBrowser is listening on inside the container."
+      tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active)."
     },
     {
       id: "runpod.shutdown_action",

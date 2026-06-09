@@ -66,6 +66,26 @@ function getFileBrowserPort() {
     return 8080;
 }
 
+// Fetch configured FileBrowser URL mode
+function getFileBrowserType() {
+    const settingsUi = app?.ui?.settings;
+    if (settingsUi?.getSettingValue) {
+        const val = settingsUi.getSettingValue("runpod.filebrowser_type");
+        if (typeof val === "string") return val;
+    }
+    return "relative_path";
+}
+
+// Fetch configured FileBrowser relative path suffix
+function getFileBrowserRelativePath() {
+    const settingsUi = app?.ui?.settings;
+    if (settingsUi?.getSettingValue) {
+        const val = settingsUi.getSettingValue("runpod.filebrowser_relative_path");
+        if (typeof val === "string") return val;
+    }
+    return "/files/";
+}
+
 // Fetch configured shutdown behavior
 function getShutdownAction() {
     const settingsUi = app?.ui?.settings;
@@ -83,6 +103,22 @@ async function fetchRunPodStatus() {
         const response = await fetch(`/runpod/status?port=${port}`);
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
+        
+        // Override URLs dynamically if using relative path reverse proxy mode
+        if (runpodStatus.is_runpod && runpodStatus.filebrowser_active) {
+            const fbType = getFileBrowserType();
+            if (fbType === "relative_path") {
+                const subpath = getFileBrowserRelativePath();
+                // Ensure correct leading/trailing slashes
+                const leadSlash = subpath.startsWith("/") ? "" : "/";
+                const trailSlash = subpath.endsWith("/") ? "" : "/";
+                const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
+                const origin = window.location.origin.replace(/\/$/, "");
+                
+                runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
+                runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
+            }
+        }
         return runpodStatus.is_runpod;
     } catch (e) {
         console.warn("[RunPod Control] Failed to fetch RunPod status from backend:", e);
