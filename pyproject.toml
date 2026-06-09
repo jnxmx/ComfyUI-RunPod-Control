@@ -1,0 +1,13 @@
+[project]
+name = "ComfyUI-RunPod-Control"
+description = "Auto-shutdown timer, FileBrowser launcher, and Pod Info utilities for ComfyUI running on RunPod."
+version = "1.0.0"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/jnxmx/ComfyUI-RunPod-Control"
+
+[tool.comfy]
+PublisherId = "jnx"
+DisplayName = "RunPod Control"
+Icon = ""
