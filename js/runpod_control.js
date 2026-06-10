@@ -179,7 +179,6 @@ async function fetchRunPodStatus() {
                 // OVERRIDE: Check if we are accessed via direct TCP IP connection (bypassing HTTP proxy)
                 const isIpAddress = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(window.location.hostname);
                 const currentPort = window.location.port ? parseInt(window.location.port, 10) : null;
-                const comfyuiInternalPorts = runpodStatus.comfyui_ports || [8188];
                 
                 let isDirectTcp = isIpAddress;
                 if (!isDirectTcp && currentPort && runpodStatus.tcp_port_mappings) {
