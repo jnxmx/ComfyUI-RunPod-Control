@@ -221,21 +221,17 @@ async function fetchRunPodStatus() {
 async function executeShutdown() {
     const action = getShutdownAction();
     showToast("Shutdown Triggered", "Sending terminate signal to the pod...", "warn");
-    try {
-        const response = await fetch("/runpod/shutdown", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action })
-        });
-        const result = await response.json();
-        if (result.success) {
-            showToast("Shutdown Sent", "Command successfully scheduled. The pod will stop shortly.", "success");
-        } else {
-            showToast("Shutdown Failed", result.error || "Unknown error", "error");
-        }
-    } catch (e) {
-        showToast("Shutdown Error", e.message || "Failed to communicate with backend", "error");
-    }
+    
+    // Trigger the backend API call to terminate/stop the pod
+    const shutdownPromise = fetch("/runpod/shutdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+    }).catch(e => console.error("[RunPod Control] Backend shutdown request failed:", e));
+
+    // Instantly redirect the browser window to RunPod console
+    // so the user does not get stuck on a freezing/hanging webpage as the pod dies
+    window.location.href = "https://console.runpod.io/";
 }
 
 // Update the Top Action Bar Timer Button display
