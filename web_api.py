@@ -36,6 +36,16 @@ async def get_runpod_status(request):
             is_runpod = True
             pod_id = hostname
             
+    # Determine ComfyUI's port to avoid matching it
+    comfyui_port = 8188
+    try:
+        import server
+        prompt_instance = getattr(server.PromptServer, "instance", None)
+        if prompt_instance and hasattr(prompt_instance, "port"):
+            comfyui_port = int(prompt_instance.port)
+    except Exception:
+        pass
+
     port_param = request.query.get("port", "8080")
     try:
         filebrowser_port = int(port_param)
@@ -48,15 +58,15 @@ async def get_runpod_status(request):
     output_url = None
     
     if is_runpod and pod_id:
-        # 1. First test the user-configured port
-        if await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
+        # 1. First test the user-configured port (if it doesn't conflict with ComfyUI's port)
+        if filebrowser_port != comfyui_port and await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
             filebrowser_active = True
             detected_port = filebrowser_port
         else:
-            # 2. Probe common fallback ports (excluding 8188 to avoid matching ComfyUI itself)
+            # 2. Probe common fallback ports (excluding ComfyUI's actual port)
             fallback_ports = [8080, 8081, 7860, 7861, 8000, 3000, 80]
             for p in fallback_ports:
-                if p == filebrowser_port:
+                if p == filebrowser_port or p == comfyui_port:
                     continue
                 if await check_port_open("127.0.0.1", p, timeout=0.3):
                     filebrowser_active = True
@@ -74,7 +84,8 @@ async def get_runpod_status(request):
         "filebrowser_active": filebrowser_active,
         "filebrowser_port": detected_port,
         "filebrowser_url": filebrowser_url,
-        "output_url": output_url
+        "output_url": output_url,
+        "comfyui_port": comfyui_port
     })
 
 async def post_runpod_shutdown(request):
