@@ -362,7 +362,7 @@ function updateButtonUI() {
     const isActive = timerState.enabled && !timerState.jobActive;
     let htmlContent;
     if (isActive) {
-        htmlContent = `RunPod <span class="pi pi-power-off" style="margin: 0 4px; font-size: 12px; display: inline-block;"></span>${getButtonText()}`;
+        htmlContent = `RunPod<span class="pi pi-power-off" style="margin-left: 6px; margin-right: 2px; font-size: 12px; display: inline-block; vertical-align: middle;"></span>${getButtonText()}`;
     } else {
         htmlContent = `RunPod`;
     }
