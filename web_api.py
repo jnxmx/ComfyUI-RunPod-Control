@@ -3,6 +3,90 @@ import asyncio
 import shutil
 from aiohttp import web
 
+class RunPodTimer:
+    def __init__(self):
+        self.enabled = True
+        self.duration_seconds = 1800  # Default 30 min
+        self.seconds_left = 1800
+        self.job_active = False
+        self.shutdown_action = "stop_and_remove"
+        self._task = None
+
+    def start(self):
+        if self._task is None:
+            self._task = asyncio.create_task(self._tick_loop())
+            print("[ComfyUI-RunPod-Control] Background timer task started.")
+
+    async def _tick_loop(self):
+        # Give the server some time to initialize fully
+        await asyncio.sleep(5.0)
+        while True:
+            try:
+                await asyncio.sleep(1.0)
+                
+                # Check ComfyUI queue status
+                import server
+                prompt_server = getattr(server, "PromptServer", None)
+                if not prompt_server or not getattr(prompt_server, "instance", None):
+                    continue
+                
+                server_instance = prompt_server.instance
+                try:
+                    queue_info = server_instance.get_queue_info()
+                    running = queue_info.get("queue_running", [])
+                    pending = queue_info.get("queue_pending", [])
+                    has_jobs = (len(running) + len(pending)) > 0
+                except Exception as e:
+                    has_jobs = False
+
+                if has_jobs:
+                    self.job_active = True
+                    # Reset timer back to duration if job is active
+                    self.seconds_left = self.duration_seconds
+                else:
+                    self.job_active = False
+                    if self.enabled:
+                        if self.seconds_left > 0:
+                            self.seconds_left -= 1
+                            if self.seconds_left <= 0:
+                                await self._trigger_shutdown()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[ComfyUI-RunPod-Control] Exception in timer loop: {e}")
+
+    async def _trigger_shutdown(self):
+        pod_id = os.environ.get("RUNPOD_POD_ID")
+        if not pod_id:
+            print("[ComfyUI-RunPod-Control] Shutdown triggered but RUNPOD_POD_ID is missing.")
+            return
+
+        runpodctl_path = shutil.which("runpodctl")
+        if not runpodctl_path:
+            print("[ComfyUI-RunPod-Control] Shutdown triggered but runpodctl not found in PATH.")
+            return
+
+        if self.shutdown_action == "stop_only":
+            cmd = f"runpodctl stop pod {pod_id}"
+        else:
+            cmd = f"runpodctl remove pod {pod_id}"
+
+        print(f"[ComfyUI-RunPod-Control] Timer expired. Executing shutdown: {cmd}")
+        try:
+            process = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            print(f"[ComfyUI-RunPod-Control] Shutdown stdout: {stdout.decode().strip()}")
+            print(f"[ComfyUI-RunPod-Control] Shutdown stderr: {stderr.decode().strip()}")
+        except Exception as e:
+            print(f"[ComfyUI-RunPod-Control] Shutdown command failed: {e}")
+
+runpod_timer = RunPodTimer()
+
+
 def _safe_add_route(app, method, path, handler):
     try:
         if app is not None and hasattr(app, "router"):
@@ -107,7 +191,14 @@ async def get_runpod_status(request):
         "output_url": output_url,
         "comfyui_ports": list(comfyui_ports),
         "gpu_name": os.environ.get("RUNPOD_GPU_KEY", "GPU").replace("NVIDIA-", "").replace("GeForce-", "").replace("RTX-", "RTX "),
-        "balance": os.environ.get("RUNPOD_BALANCE", "?")
+        "balance": os.environ.get("RUNPOD_BALANCE", "?"),
+        "timer": {
+            "enabled": runpod_timer.enabled,
+            "seconds_left": runpod_timer.seconds_left,
+            "duration_seconds": runpod_timer.duration_seconds,
+            "job_active": runpod_timer.job_active,
+            "shutdown_action": runpod_timer.shutdown_action
+        }
     })
 
 async def post_runpod_shutdown(request):
@@ -165,8 +256,49 @@ async def post_runpod_shutdown(request):
         "message": f"Shutdown command scheduled successfully using action: {action}"
     })
 
+async def post_runpod_timer(request):
+    try:
+        body = await request.json()
+        action = body.get("action")
+        
+        if action == "reset":
+            runpod_timer.seconds_left = runpod_timer.duration_seconds
+        elif action == "toggle":
+            enabled = body.get("enabled", not runpod_timer.enabled)
+            runpod_timer.enabled = enabled
+            if enabled:
+                runpod_timer.seconds_left = runpod_timer.duration_seconds
+        elif action == "set_duration":
+            duration = body.get("duration_seconds")
+            if isinstance(duration, int) and duration > 0:
+                runpod_timer.duration_seconds = duration
+                if not runpod_timer.job_active and runpod_timer.enabled:
+                    runpod_timer.seconds_left = duration
+        elif action == "set_shutdown_action":
+            sht_action = body.get("shutdown_action")
+            if sht_action in ["stop_only", "stop_and_remove"]:
+                runpod_timer.shutdown_action = sht_action
+                
+        return web.json_response({
+            "success": True,
+            "timer": {
+                "enabled": runpod_timer.enabled,
+                "seconds_left": runpod_timer.seconds_left,
+                "duration_seconds": runpod_timer.duration_seconds,
+                "job_active": runpod_timer.job_active,
+                "shutdown_action": runpod_timer.shutdown_action
+            }
+        })
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 def setup(app):
     if app is None:
         return
+    
+    # Start the background timer task
+    runpod_timer.start()
+    
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
     _safe_add_route(app, "POST", "/runpod/shutdown", post_runpod_shutdown)
+    _safe_add_route(app, "POST", "/runpod/timer", post_runpod_timer)

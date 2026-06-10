@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.16 loaded");
+console.log("[RunPod Control] v1.0.17 loaded");
 
 // Global State
 let runpodStatus = {
@@ -149,7 +149,12 @@ async function fetchRunPodStatus() {
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
         
-        console.log("[RunPod Control] Detected RunPod status:", runpodStatus);
+        if (runpodStatus.timer) {
+            timerState.enabled = runpodStatus.timer.enabled;
+            timerState.secondsLeft = runpodStatus.timer.seconds_left;
+            timerState.jobActive = runpodStatus.timer.job_active;
+            timerState.running = timerState.enabled && !timerState.jobActive;
+        }
         
         const forceShow = getFileBrowserVisibility() === "always_show";
         if (runpodStatus.is_runpod) {
@@ -324,34 +329,42 @@ function updateButtonUI() {
 }
 
 // Start, Pause, Reset Timer logic
-function resetTimer() {
-    timerState.secondsLeft = getConfiguredMinutes() * 60;
+async function resetTimer() {
+    try {
+        const response = await fetch("/runpod/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "reset" })
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.timer) {
+                timerState.enabled = data.timer.enabled;
+                timerState.secondsLeft = data.timer.seconds_left;
+                timerState.jobActive = data.timer.job_active;
+                timerState.running = timerState.enabled && !timerState.jobActive;
+            }
+        }
+    } catch (e) {
+        console.warn("[RunPod Control] Failed to reset timer on backend:", e);
+    }
     hideCountdownOverlay();
     updateButtonUI();
-    if (!timerState.jobActive && timerState.enabled) {
-        startTimerCountdown();
-    }
 }
 
 function startTimerCountdown() {
     if (timerState.intervalId) clearInterval(timerState.intervalId);
-    if (!timerState.enabled || timerState.jobActive) return;
 
-    timerState.running = true;
-    timerState.intervalId = setInterval(() => {
-        if (timerState.secondsLeft <= 0) {
-            clearInterval(timerState.intervalId);
-            timerState.running = false;
-            hideCountdownOverlay();
-            executeShutdown();
-            return;
-        }
-
-        timerState.secondsLeft--;
+    // Poll the backend status every 1 second to stay in sync
+    timerState.intervalId = setInterval(async () => {
+        const isRunPod = await fetchRunPodStatus();
+        if (!isRunPod) return;
+        
         updateButtonUI();
 
         // Overlay trigger condition
-        if (timerState.secondsLeft < 100) {
+        const isActive = timerState.enabled && !timerState.jobActive;
+        if (isActive && timerState.secondsLeft < 100) {
             showCountdownOverlay();
         } else {
             hideCountdownOverlay();
@@ -359,61 +372,35 @@ function startTimerCountdown() {
     }, 1000);
 }
 
-function pauseTimer() {
-    if (timerState.intervalId) {
-        clearInterval(timerState.intervalId);
-        timerState.intervalId = null;
+async function pauseTimer() {
+    try {
+        await fetch("/runpod/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "toggle", enabled: false })
+        });
+        await fetchRunPodStatus();
+    } catch (e) {
+        console.warn("[RunPod Control] Failed to pause timer on backend:", e);
     }
-    timerState.running = false;
     hideCountdownOverlay();
     updateButtonUI();
 }
 
 // Set up event listeners for execution states
 function setupJobDetection() {
-    // 1. WebSocket execution events
+    // 1. WebSocket execution events to force an immediate backend sync
     api.addEventListener("execution_start", () => {
-        timerState.jobActive = true;
-        pauseTimer();
+        fetchRunPodStatus().then(() => updateButtonUI());
     });
 
     api.addEventListener("executed", () => {
-        checkQueueState();
+        fetchRunPodStatus().then(() => updateButtonUI());
     });
 
     api.addEventListener("execution_error", () => {
-        checkQueueState();
+        fetchRunPodStatus().then(() => updateButtonUI());
     });
-
-    // 2. Poll/query queue immediately to synchronize state
-    checkQueueState();
-}
-
-async function checkQueueState() {
-    try {
-        const response = await fetch("/queue");
-        if (!response.ok) return;
-        const data = await response.json();
-        const running = data.queue_running || [];
-        const pending = data.queue_pending || [];
-        const total = running.length + pending.length;
-
-        if (total > 0) {
-            timerState.jobActive = true;
-            pauseTimer();
-        } else {
-            if (timerState.jobActive) {
-                // Transitioning from active -> idle
-                timerState.jobActive = false;
-                resetTimer();
-            } else if (!timerState.running && timerState.enabled) {
-                // If not running, kick-start
-                startTimerCountdown();
-            }
-        }
-    } catch (e) {
-        console.warn("[RunPod Control] Failed to verify queue state:", e);
-    }
 }
 
 // Dropdown Menus: Create & Hide
@@ -500,14 +487,28 @@ function ensureUnifiedDropdown(buttonEl) {
         }
     });
 
-    const toggleTimerBtn = createItem(timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer", () => {
-        timerState.enabled = !timerState.enabled;
-        toggleTimerBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
-        if (timerState.enabled) {
-            resetTimer();
-        } else {
-            pauseTimer();
+    const toggleTimerBtn = createItem(timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer", async () => {
+        const nextEnabled = !timerState.enabled;
+        try {
+            const response = await fetch("/runpod/timer", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "toggle", enabled: nextEnabled })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.timer) {
+                    timerState.enabled = data.timer.enabled;
+                    timerState.secondsLeft = data.timer.seconds_left;
+                    timerState.jobActive = data.timer.job_active;
+                    timerState.running = timerState.enabled && !timerState.jobActive;
+                }
+            }
+        } catch (e) {
+            console.warn("[RunPod Control] Failed to toggle timer:", e);
         }
+        toggleTimerBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
+        updateButtonUI();
     });
 
     const resetTimerBtn = createItem("Reset shutdown timer", () => {
@@ -709,13 +710,14 @@ app.registerExtension({
             tooltip: "How long the pod should remain idle after all jobs finish before shutting down.",
             attrs: { min: 1, max: 1440, step: 1 },
             onChange(value) {
-                if (typeof value === "number" && value > 0) {
-                    if (!timerState.jobActive && timerState.enabled) {
-                        resetTimer();
-                    } else {
-                        timerState.secondsLeft = value * 60;
-                        updateButtonUI();
-                    }
+                let val = value;
+                if (typeof val === "string") val = parseInt(val, 10);
+                if (typeof val === "number" && !isNaN(val) && val > 0) {
+                    fetch("/runpod/timer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "set_duration", duration_seconds: val * 60 })
+                    }).then(() => fetchRunPodStatus()).then(() => updateButtonUI());
                 }
             }
         },
@@ -781,14 +783,40 @@ app.registerExtension({
             options: [
                 { value: "stop_only", text: "Stop Only (keep disk & files)" },
                 { value: "stop_and_remove", text: "Stop and Remove (terminate pod)" }
-            ]
+            ],
+            onChange(value) {
+                if (typeof value === "string") {
+                    fetch("/runpod/timer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "set_shutdown_action", shutdown_action: value })
+                    }).then(() => fetchRunPodStatus()).then(() => updateButtonUI());
+                }
+            }
         }
     ],
     setup() {
         fetchRunPodStatus().then((isRunPod) => {
             if (!isRunPod) return;
 
-            timerState.secondsLeft = getConfiguredMinutes() * 60;
+            // Sync current client settings to backend on startup
+            const syncSettings = async () => {
+                const mins = getConfiguredMinutes();
+                const act = getShutdownAction();
+                await fetch("/runpod/timer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "set_duration", duration_seconds: mins * 60 })
+                });
+                await fetch("/runpod/timer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "set_shutdown_action", shutdown_action: act })
+                });
+                await fetchRunPodStatus();
+                updateButtonUI();
+            };
+            syncSettings();
 
             // MutationObserver to place buttons dynamically when action bar renders/updates
             const uiObserver = new MutationObserver((mutations) => {
