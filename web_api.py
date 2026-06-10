@@ -138,27 +138,52 @@ async def get_runpod_status(request):
         except ValueError:
             pass
 
-    port_param = request.query.get("port", "8080")
+    port_param = request.query.get("port", "")
     try:
-        filebrowser_port = int(port_param)
+        filebrowser_port = int(port_param) if port_param else None
     except ValueError:
-        filebrowser_port = 8080
-        
+        filebrowser_port = None
+
+    # Collect internal ports that RunPod has mapped to direct TCP connections.
+    # These are NOT accessible via the *.proxy.runpod.net HTTPS proxy tunnel,
+    # so we must EXCLUDE them when looking for a proxy-accessible FileBrowser port.
+    tcp_internal_ports = set()
+    for key in os.environ:
+        if key.startswith("RUNPOD_TCP_PORT_"):
+            try:
+                internal_port = int(key.replace("RUNPOD_TCP_PORT_", ""))
+                tcp_internal_ports.add(internal_port)
+            except ValueError:
+                pass
+
     filebrowser_active = False
     detected_port = None
     filebrowser_url = None
     output_url = None
-    
+
     if is_runpod and pod_id:
-        # 1. First test the user-configured port (if it doesn't conflict with ComfyUI's port)
-        if filebrowser_port not in comfyui_ports and await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
+        # 1. First test the explicitly user-configured port (if not a TCP port or ComfyUI port)
+        if (
+            filebrowser_port is not None
+            and filebrowser_port not in comfyui_ports
+            and filebrowser_port not in tcp_internal_ports
+            and await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5)
+        ):
             filebrowser_active = True
             detected_port = filebrowser_port
         else:
-            # 2. Probe common fallback ports (excluding ComfyUI's actual ports)
-            fallback_ports = [8080, 8081, 7860, 7861, 8000, 3000, 80]
+            # 2. Probe common fallback ports, skipping:
+            #    - ComfyUI ports
+            #    - TCP-direct mapped ports (not proxy-accessible)
+            #    - The already-tested user port
+            fallback_ports = [7861, 7860, 8081, 8080, 8000, 3000, 80]
             for p in fallback_ports:
-                if p == filebrowser_port or p in comfyui_ports:
+                if p in comfyui_ports:
+                    continue
+                if p in tcp_internal_ports:
+                    # This port is a direct TCP mapping, not proxy-accessible — skip it
+                    continue
+                if filebrowser_port is not None and p == filebrowser_port:
                     continue
                 if await check_port_open("127.0.0.1", p, timeout=0.3):
                     filebrowser_active = True
@@ -170,7 +195,7 @@ async def get_runpod_status(request):
             filebrowser_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/"
             output_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/output/"
 
-    # Collect all direct TCP port mappings from environment variables
+    # Build the full TCP mapping (internal → external) for the response
     tcp_port_mappings = {}
     for key, value in os.environ.items():
         if key.startswith("RUNPOD_TCP_PORT_"):
