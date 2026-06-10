@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.18 loaded");
+console.log("[RunPod Control] v1.0.19 loaded");
 
 // Global State
 let runpodStatus = {
@@ -179,10 +179,7 @@ async function fetchRunPodStatus() {
                 const comfyPort = proxyInfo.comfyPort;
                 const isComfyPort = comfyuiInternalPorts.includes(activePort) || (comfyPort && activePort === comfyPort);
 
-                // Auto-correct: If the active FileBrowser port is different from ComfyUI's ports,
-                // we MUST route to a separate proxy port regardless of the setting, as it is physically
-                // not served on the ComfyUI port.
-                const shouldExposeOnSeparatePort = (fbType === "separate_port") || (runpodStatus.filebrowser_active && !isComfyPort);
+                const shouldExposeOnSeparatePort = (fbType === "separate_port");
 
                 if (shouldExposeOnSeparatePort) {
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
