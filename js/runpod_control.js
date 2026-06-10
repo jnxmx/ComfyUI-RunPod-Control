@@ -871,7 +871,17 @@ app.registerExtension({
             type: "number",
             defaultValue: 30,
             tooltip: "How long the pod should remain idle after all jobs finish before shutting down.",
-            attrs: { min: 1, max: 1440, step: 1 }
+            attrs: { min: 1, max: 1440, step: 1 },
+            onChange(value) {
+                if (typeof value === "number" && value > 0) {
+                    if (!timerState.jobActive && timerState.enabled) {
+                        resetTimer();
+                    } else {
+                        timerState.secondsLeft = value * 60;
+                        updateTimerButtonUI();
+                    }
+                }
+            }
         },
         {
             id: "runpod.filebrowser_type",
@@ -883,7 +893,10 @@ app.registerExtension({
             options: [
                 { value: "relative_path", text: "ComfyUI Subpath (e.g. /files/ via Nginx)" },
                 { value: "separate_port", text: "Separate Proxy Port (e.g. 8080)" }
-            ]
+            ],
+            onChange() {
+                fetchRunPodStatus().then(() => queueDecorateButtons());
+            }
         },
         {
             id: "runpod.filebrowser_relative_path",
@@ -891,7 +904,10 @@ app.registerExtension({
             name: "FileBrowser Relative Path",
             type: "text",
             defaultValue: "/files/",
-            tooltip: "The subpath route on your main URL that routes to FileBrowser."
+            tooltip: "The subpath route on your main URL that routes to FileBrowser.",
+            onChange() {
+                fetchRunPodStatus().then(() => queueDecorateButtons());
+            }
         },
         {
             id: "runpod.filebrowser_port",
@@ -899,7 +915,10 @@ app.registerExtension({
             name: "FileBrowser Local Port",
             type: "number",
             defaultValue: 8080,
-            tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active)."
+            tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active).",
+            onChange() {
+                fetchRunPodStatus().then(() => queueDecorateButtons());
+            }
         },
         {
             id: "runpod.filebrowser_visibility",
@@ -911,7 +930,10 @@ app.registerExtension({
             options: [
                 { value: "auto_detect", text: "Auto-detect service status" },
                 { value: "always_show", text: "Always show button" }
-            ]
+            ],
+            onChange() {
+                fetchRunPodStatus().then(() => queueDecorateButtons());
+            }
         },
         {
             id: "runpod.shutdown_action",
