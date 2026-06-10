@@ -105,7 +105,9 @@ async def get_runpod_status(request):
         "filebrowser_port": detected_port,
         "filebrowser_url": filebrowser_url,
         "output_url": output_url,
-        "comfyui_ports": list(comfyui_ports)
+        "comfyui_ports": list(comfyui_ports),
+        "gpu_name": os.environ.get("RUNPOD_GPU_KEY", "GPU").replace("NVIDIA-", "").replace("GeForce-", "").replace("RTX-", "RTX "),
+        "balance": os.environ.get("RUNPOD_BALANCE", "?")
     })
 
 async def post_runpod_shutdown(request):
