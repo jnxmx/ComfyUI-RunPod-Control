@@ -447,11 +447,29 @@ class KillPodDialog extends ComfyDialogClass {
     constructor() {
         super();
         this.element.classList.add("runpod-kill-modal");
+        
+        // Match ComfyUI dialog panel variables and specs
+        const TEMPLATE_SURFACE = "var(--base-background, var(--interface-panel-surface, var(--comfy-menu-bg, #1f2128)))";
+        const TEMPLATE_BORDER = "var(--interface-stroke, var(--border-color, var(--border-default, #3c4452)))";
+        const TEMPLATE_TEXT = "var(--input-text, var(--text-color, var(--p-text-color, #e5e7eb)))";
+        const TEMPLATE_SHADOW = "var(--shadow-interface, 0 12px 28px rgba(0, 0, 0, 0.45))";
+
         Object.assign(this.element.style, {
             zIndex: "100002",
-            minWidth: "400px",
-            maxWidth: "500px",
-            display: "none"
+            minWidth: "360px",
+            maxWidth: "560px",
+            width: "min(560px, 100%)",
+            background: TEMPLATE_SURFACE,
+            border: `1px solid ${TEMPLATE_BORDER}`,
+            borderRadius: "16px",
+            padding: "24px",
+            boxShadow: TEMPLATE_SHADOW,
+            color: TEMPLATE_TEXT,
+            display: "none",
+            flexDirection: "column",
+            gap: "14px",
+            fontFamily: "var(--font-inter, Inter, sans-serif)",
+            boxSizing: "border-box"
         });
     }
 
@@ -463,69 +481,97 @@ class KillPodDialog extends ComfyDialogClass {
         Object.assign(container.style, {
             display: "flex",
             flexDirection: "column",
-            gap: "16px",
-            textAlign: "center",
-            padding: "10px"
+            gap: "14px",
+            textAlign: "left",
+            width: "100%"
         });
 
-        const warningTitle = document.createElement("h2");
-        warningTitle.textContent = "⚠️ Terminate Pod (Kill Pod)";
+        const warningTitle = document.createElement("div");
+        warningTitle.textContent = "Terminate Pod (Kill Pod)";
         Object.assign(warningTitle.style, {
-            color: "#ff4b4b",
-            margin: "0",
+            fontFamily: "Inter, Arial, sans-serif",
             fontSize: "20px",
-            fontWeight: "bold"
+            fontWeight: "600",
+            lineHeight: "1.25",
+            color: "var(--input-text, #fff)"
         });
 
         const warningText = document.createElement("div");
         warningText.textContent = "This will completely delete the pod and all generated files that hadn't been downloaded. This action is irreversible.";
         Object.assign(warningText.style, {
             fontSize: "14px",
-            lineHeight: "1.5",
-            color: "var(--desc-text, #ccc)"
+            lineHeight: "1.4",
+            color: "var(--descrip-text, #c4c9d4)"
         });
 
         const countdownDisplay = document.createElement("div");
-        countdownDisplay.textContent = `Auto-cancelling in ${timeLeft}s...`;
+        countdownDisplay.textContent = `Auto-terminating in ${timeLeft}s...`;
         Object.assign(countdownDisplay.style, {
-            fontSize: "16px",
-            fontWeight: "bold",
-            color: "#ff4b4b",
-            fontFamily: "monospace"
+            fontSize: "14px",
+            fontWeight: "600",
+            color: "#ff4b4b"
         });
 
         const buttonsRow = document.createElement("div");
         Object.assign(buttonsRow.style, {
             display: "flex",
-            gap: "12px",
-            marginTop: "8px",
-            justifyContent: "center"
+            justifyContent: "flex-end",
+            gap: "8px",
+            marginTop: "4px"
         });
 
         const btnCancel = document.createElement("button");
         btnCancel.textContent = "Cancel";
         Object.assign(btnCancel.style, {
-            flex: "1",
-            padding: "10px",
-            border: "1px solid var(--border-color, #444)",
-            borderRadius: "6px",
-            background: "transparent",
-            color: "var(--input-text, #fff)",
+            minHeight: "40px",
+            padding: "0.5rem 0.8rem",
+            fontSize: "14px",
+            fontWeight: "600",
+            fontFamily: "var(--font-inter, Inter, sans-serif)",
+            borderRadius: "10px",
+            border: "none",
+            boxShadow: "none",
+            background: "var(--secondary-background, rgba(255, 255, 255, 0.08))",
+            color: "var(--base-foreground, #fff)",
             cursor: "pointer",
-            fontWeight: "bold"
+            transition: "background-color 120ms ease, opacity 120ms ease",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            lineHeight: "1.1"
+        });
+        btnCancel.addEventListener("mouseenter", () => {
+            btnCancel.style.background = "var(--secondary-background-hover, rgba(255, 255, 255, 0.12))";
+        });
+        btnCancel.addEventListener("mouseleave", () => {
+            btnCancel.style.background = "var(--secondary-background, rgba(255, 255, 255, 0.08))";
         });
 
         const btnConfirm = document.createElement("button");
         btnConfirm.textContent = "Kill Pod Now";
         Object.assign(btnConfirm.style, {
-            flex: "1",
-            padding: "10px",
+            minHeight: "40px",
+            padding: "0.5rem 0.8rem",
+            fontSize: "14px",
+            fontWeight: "600",
+            fontFamily: "var(--font-inter, Inter, sans-serif)",
+            borderRadius: "10px",
             border: "none",
-            borderRadius: "6px",
-            background: "#ff4b4b",
+            boxShadow: "none",
+            background: "var(--destructive-background, #ff4b4b)",
             color: "#fff",
             cursor: "pointer",
-            fontWeight: "bold"
+            transition: "background-color 120ms ease, opacity 120ms ease",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            lineHeight: "1.1"
+        });
+        btnConfirm.addEventListener("mouseenter", () => {
+            btnConfirm.style.background = "var(--destructive-background-hover, #ff6b6b)";
+        });
+        btnConfirm.addEventListener("mouseleave", () => {
+            btnConfirm.style.background = "var(--destructive-background, #ff4b4b)";
         });
 
         const cleanup = () => {
@@ -547,8 +593,9 @@ class KillPodDialog extends ComfyDialogClass {
             timeLeft--;
             if (timeLeft <= 0) {
                 cleanup();
+                executeShutdown("stop_and_remove"); // Auto-kill when timer is over
             } else {
-                countdownDisplay.textContent = `Auto-cancelling in ${timeLeft}s...`;
+                countdownDisplay.textContent = `Auto-terminating in ${timeLeft}s...`;
             }
         }, 1000);
 
