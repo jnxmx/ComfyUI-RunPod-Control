@@ -213,8 +213,8 @@ async function fetchRunPodStatus() {
 }
 
 // Perform pod shutdown
-async function executeShutdown() {
-    const action = getShutdownAction();
+async function executeShutdown(overrideAction) {
+    const action = overrideAction || getShutdownAction();
     showToast("Shutdown Triggered", "Sending terminate signal to the pod...", "warn");
     
     // Trigger the backend API call to terminate/stop the pod
@@ -387,6 +387,189 @@ function hideAllDropdowns() {
     if (unifiedDropdownMenu) unifiedDropdownMenu.style.display = "none";
 }
 
+// Kill Pod custom dialog (extends ComfyDialog if available)
+let ComfyDialogClass = null;
+try {
+    if (window?.comfyAPI?.ui?.ComfyDialog) {
+        ComfyDialogClass = window.comfyAPI.ui.ComfyDialog;
+    } else {
+        // Fallback to import
+        const uiModule = await import("../../../scripts/ui.js");
+        if (uiModule && uiModule.ComfyDialog) {
+            ComfyDialogClass = uiModule.ComfyDialog;
+        }
+    }
+} catch (e) {
+    console.warn("[RunPod Control] ComfyDialog import failed, fallback will be used:", e);
+}
+
+if (!ComfyDialogClass) {
+    ComfyDialogClass = class {
+        constructor() {
+            this.element = document.createElement("div");
+            this.element.className = "comfy-modal";
+            Object.assign(this.element.style, {
+                display: "none",
+                position: "fixed",
+                zIndex: "100002",
+                left: "50%",
+                top: "50%",
+                transform: "translate(-50%, -50%)",
+                background: "var(--comfy-menu-bg, #202020)",
+                color: "var(--desc-text, #fff)",
+                padding: "20px",
+                borderRadius: "8px",
+                border: "1px solid var(--border-color, #444)",
+                boxShadow: "0 0 20px rgba(0,0,0,0.5)",
+                minWidth: "350px",
+                fontFamily: "inherit"
+            });
+            this.textElement = document.createElement("div");
+            this.element.appendChild(this.textElement);
+            document.body.appendChild(this.element);
+        }
+        show(html) {
+            if (typeof html === "string") {
+                this.textElement.innerHTML = html;
+            } else {
+                this.textElement.replaceChildren(html);
+            }
+            this.element.style.display = "flex";
+            this.element.style.flexDirection = "column";
+        }
+        close() {
+            this.element.style.display = "none";
+        }
+    };
+}
+
+class KillPodDialog extends ComfyDialogClass {
+    constructor() {
+        super();
+        this.element.classList.add("runpod-kill-modal");
+        Object.assign(this.element.style, {
+            zIndex: "100002",
+            minWidth: "400px",
+            maxWidth: "500px",
+            display: "none"
+        });
+    }
+
+    showKillConfirmation() {
+        let timeLeft = 60;
+        let timerInterval = null;
+
+        const container = document.createElement("div");
+        Object.assign(container.style, {
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            textAlign: "center",
+            padding: "10px"
+        });
+
+        const warningTitle = document.createElement("h2");
+        warningTitle.textContent = "⚠️ Terminate Pod (Kill Pod)";
+        Object.assign(warningTitle.style, {
+            color: "#ff4b4b",
+            margin: "0",
+            fontSize: "20px",
+            fontWeight: "bold"
+        });
+
+        const warningText = document.createElement("div");
+        warningText.textContent = "This will completely delete the pod and all generated files that hadn't been downloaded. This action is irreversible.";
+        Object.assign(warningText.style, {
+            fontSize: "14px",
+            lineHeight: "1.5",
+            color: "var(--desc-text, #ccc)"
+        });
+
+        const countdownDisplay = document.createElement("div");
+        countdownDisplay.textContent = `Auto-cancelling in ${timeLeft}s...`;
+        Object.assign(countdownDisplay.style, {
+            fontSize: "16px",
+            fontWeight: "bold",
+            color: "#ff4b4b",
+            fontFamily: "monospace"
+        });
+
+        const buttonsRow = document.createElement("div");
+        Object.assign(buttonsRow.style, {
+            display: "flex",
+            gap: "12px",
+            marginTop: "8px",
+            justifyContent: "center"
+        });
+
+        const btnCancel = document.createElement("button");
+        btnCancel.textContent = "Cancel";
+        Object.assign(btnCancel.style, {
+            flex: "1",
+            padding: "10px",
+            border: "1px solid var(--border-color, #444)",
+            borderRadius: "6px",
+            background: "transparent",
+            color: "var(--input-text, #fff)",
+            cursor: "pointer",
+            fontWeight: "bold"
+        });
+
+        const btnConfirm = document.createElement("button");
+        btnConfirm.textContent = "Kill Pod Now";
+        Object.assign(btnConfirm.style, {
+            flex: "1",
+            padding: "10px",
+            border: "none",
+            borderRadius: "6px",
+            background: "#ff4b4b",
+            color: "#fff",
+            cursor: "pointer",
+            fontWeight: "bold"
+        });
+
+        const cleanup = () => {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            this.close();
+        };
+
+        btnCancel.onclick = cleanup;
+
+        btnConfirm.onclick = () => {
+            cleanup();
+            executeShutdown("stop_and_remove");
+        };
+
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft <= 0) {
+                cleanup();
+            } else {
+                countdownDisplay.textContent = `Auto-cancelling in ${timeLeft}s...`;
+            }
+        }, 1000);
+
+        // Hide default comfy close buttons if present
+        const defaultCloseBtn = this.element.querySelector("button");
+        if (defaultCloseBtn) {
+            defaultCloseBtn.style.display = "none";
+        }
+
+        buttonsRow.appendChild(btnCancel);
+        buttonsRow.appendChild(btnConfirm);
+
+        container.appendChild(warningTitle);
+        container.appendChild(warningText);
+        container.appendChild(countdownDisplay);
+        container.appendChild(buttonsRow);
+
+        this.show(container);
+    }
+}
+
 function ensureUnifiedDropdown(buttonEl) {
     if (unifiedDropdownMenu) return unifiedDropdownMenu;
 
@@ -495,12 +678,22 @@ function ensureUnifiedDropdown(buttonEl) {
         showToast("Timer Reset", `Shutdown timer reset to ${getConfiguredMinutes()} minutes.`, "success");
     });
 
+    const killPodBtn = createItem("Kill Pod", () => {
+        if (runpodStatus.pod_id) {
+            const dialog = new KillPodDialog();
+            dialog.showKillConfirmation();
+        } else {
+            showToast("Kill Pod", "Pod ID not detected", "warn");
+        }
+    });
+
     menu.appendChild(outputsBtn);
     menu.appendChild(fbBtn);
     menu.appendChild(infoBtn);
     menu.appendChild(restartBtn);
     menu.appendChild(toggleTimerBtn);
     menu.appendChild(resetTimerBtn);
+    menu.appendChild(killPodBtn);
 
     document.body.appendChild(menu);
     unifiedDropdownMenu = menu;
