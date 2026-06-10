@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.15 loaded");
+console.log("[RunPod Control] v1.0.16 loaded");
 
 // Global State
 let runpodStatus = {
@@ -308,6 +308,18 @@ function updateButtonUI() {
 
     if (btn.innerHTML !== htmlContent) {
         btn.innerHTML = htmlContent;
+    }
+
+    // Urgent state: red border & text if timer is active and < 100s left
+    const isUrgent = isActive && timerState.secondsLeft < 100;
+    if (isUrgent) {
+        btn.style.borderColor = "#ff4b4b";
+        btn.style.color = "#ff4b4b";
+        btn.style.boxShadow = "0 0 4px rgba(255, 75, 75, 0.4)";
+    } else {
+        btn.style.borderColor = "";
+        btn.style.color = "";
+        btn.style.boxShadow = "";
     }
 }
 
