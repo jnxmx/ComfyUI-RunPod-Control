@@ -542,28 +542,45 @@ function hideCountdownOverlay() {
 
 // Finder to find Comfy's Run button or action bar container to insert next to it
 function findRunButtonGroup() {
-    let runBtn = document.querySelector(".comfy-play-button") || 
+    // Strategy 1: New Vue-based ComfyUI actionbar (2024+)
+    // The queue overlay toggle button is a reliable anchor in the new UI
+    const queueOverlayToggle = document.querySelector('[data-testid="queue-overlay-toggle"]');
+    if (queueOverlayToggle) {
+        // Walk up to find the flex container that holds all actionbar buttons
+        const flexContainer = queueOverlayToggle.closest('.relative.flex.items-center');
+        if (flexContainer) return flexContainer;
+        // Fallback: the panel content wrapper
+        const panelContent = queueOverlayToggle.parentElement;
+        if (panelContent) return panelContent;
+    }
+
+    // Strategy 2: Legacy class-based selectors
+    let runBtn = document.querySelector(".comfy-play-button") ||
                  document.querySelector(".comfyui-queue-button") ||
                  document.getElementById("queue-button");
-    
+
+    // Strategy 3: Text-content scan (handles icon+text buttons with innerHTML)
     if (!runBtn) {
         const buttons = document.querySelectorAll("button");
         for (const btn of buttons) {
-            const text = btn.textContent.trim().toLowerCase();
+            if (btn.closest("#runpod-control-container")) continue;
+            // Use innerText (respects visibility) or textContent stripped of whitespace
+            const text = (btn.innerText || btn.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
             if (
-                (text === "run" || text === "queue" || text === "queue prompt" || 
-                 text.startsWith("run ") || text.startsWith("queue ") || 
-                 text.startsWith("run\n") || text.startsWith("queue\n")) &&
-                !btn.closest("#runpod-control-container")
+                text === "run" || text === "queue" || text === "queue prompt" ||
+                text.startsWith("run ") || text.startsWith("queue ")
             ) {
                 runBtn = btn;
                 break;
             }
         }
     }
-    
+
     if (runBtn) {
-        return runBtn.closest(".comfyui-button-group") || runBtn.closest(".comfy-menu-queue-group") || runBtn;
+        return runBtn.closest(".comfyui-button-group") ||
+               runBtn.closest(".comfy-menu-queue-group") ||
+               runBtn.parentElement ||
+               runBtn;
     }
     return null;
 }
@@ -582,7 +599,10 @@ function decorateButtons() {
     if (!runpodStatus.is_runpod) return;
 
     const targetGroup = findRunButtonGroup();
-    if (!targetGroup) return;
+    if (!targetGroup) {
+        console.debug("[RunPod Control] findRunButtonGroup() returned null, will retry");
+        return;
+    }
 
     let container = document.getElementById("runpod-control-container");
     if (!container) {
@@ -598,10 +618,29 @@ function decorateButtons() {
         });
     }
 
-    // Insert container before the Run Button Group
-    if (targetGroup.parentNode) {
-        if (container.parentNode !== targetGroup.parentNode || container.nextSibling !== targetGroup) {
-            targetGroup.parentNode.insertBefore(container, targetGroup);
+    // Determine if targetGroup is the actionbar container itself (new Vue UI)
+    // or a sibling element to insert before (legacy UI).
+    // In new Vue UI: findRunButtonGroup() returns the flex parent that CONTAINS the run button.
+    // In legacy UI: it returns the .comfyui-button-group which is a SIBLING to insert before.
+    const isContainerItself = targetGroup.contains(document.querySelector('[data-testid="queue-overlay-toggle"]'));
+
+    if (isContainerItself) {
+        // New Vue UI: prepend inside the flex container
+        // Skip the drag-handle span which should remain first
+        if (container.parentNode !== targetGroup) {
+            const dragHandle = targetGroup.querySelector('.drag-handle, [class*="drag-handle"]');
+            if (dragHandle && dragHandle.parentNode === targetGroup) {
+                targetGroup.insertBefore(container, dragHandle.nextSibling);
+            } else {
+                targetGroup.insertBefore(container, targetGroup.firstChild);
+            }
+        }
+    } else {
+        // Legacy UI: insert our container before the button-group element
+        if (targetGroup.parentNode) {
+            if (container.parentNode !== targetGroup.parentNode || container.nextSibling !== targetGroup) {
+                targetGroup.parentNode.insertBefore(container, targetGroup);
+            }
         }
     }
 
@@ -839,6 +878,10 @@ app.registerExtension({
                 }
             });
             uiObserver.observe(document.body, { childList: true, subtree: true });
+
+            // CRITICAL: call immediately — the DOM may already be fully rendered
+            // by the time fetchRunPodStatus() resolves, so the observer alone isn't enough
+            queueDecorateButtons();
 
             // Set up drop-down menus logic
             document.body.addEventListener("mouseover", (e) => {
