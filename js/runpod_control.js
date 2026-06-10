@@ -160,15 +160,24 @@ async function fetchRunPodStatus() {
                 const trailSlash = subpath.endsWith("/") ? "" : "/";
                 const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
 
-                if (fbType === "relative_path") {
-                    const origin = window.location.origin.replace(/\/$/, "");
-                    runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
-                    runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
-                } else if (runpodStatus.filebrowser_active && fbType === "separate_port") {
-                    const activePort = runpodStatus.filebrowser_port || port;
+                const activePort = runpodStatus.filebrowser_port || port;
+                const comfyuiInternalPorts = runpodStatus.comfyui_ports || [8188];
+                const comfyPort = proxyInfo.comfyPort;
+                const isComfyPort = comfyuiInternalPorts.includes(activePort) || (comfyPort && activePort === comfyPort);
+
+                // Auto-correct: If the active FileBrowser port is different from ComfyUI's ports,
+                // we MUST route to a separate proxy port regardless of the setting, as it is physically
+                // not served on the ComfyUI port.
+                const shouldExposeOnSeparatePort = (fbType === "separate_port") || (runpodStatus.filebrowser_active && !isComfyPort);
+
+                if (shouldExposeOnSeparatePort) {
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
                     runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}`;
                     runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}output/`;
+                } else if (fbType === "relative_path") {
+                    const origin = window.location.origin.replace(/\/$/, "");
+                    runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
+                    runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
                 } else if (forceShow && !runpodStatus.filebrowser_url) {
                     // Fallback URL generation if separate port was selected but port check failed
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
