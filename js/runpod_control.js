@@ -212,22 +212,99 @@ async function fetchRunPodStatus() {
     }
 }
 
+// Show redirect countdown page
+function showRedirectCountdown() {
+    const existing = document.getElementById("runpod-redirect-overlay");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "runpod-redirect-overlay";
+    Object.assign(overlay.style, {
+        position: "fixed",
+        inset: "0",
+        background: "rgba(0, 0, 0, 0.8)",
+        backdropFilter: "blur(8px)",
+        webkitBackdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: "1000000",
+        fontFamily: "var(--font-inter, Inter, sans-serif)",
+        color: "#fff"
+    });
+
+    const card = document.createElement("div");
+    Object.assign(card.style, {
+        background: "var(--base-background, var(--comfy-menu-bg, #1f2128))",
+        border: "1px solid var(--interface-stroke, var(--border-color, #3c4452))",
+        borderRadius: "16px",
+        padding: "32px",
+        textAlign: "center",
+        boxShadow: "var(--shadow-interface, 0 12px 28px rgba(0, 0, 0, 0.45))",
+        minWidth: "320px"
+    });
+
+    const title = document.createElement("div");
+    title.textContent = "Pod Deactivated";
+    Object.assign(title.style, {
+        fontSize: "20px",
+        fontWeight: "600",
+        marginBottom: "12px",
+        color: "#ff4b4b"
+    });
+
+    const desc = document.createElement("div");
+    desc.textContent = "Your pod is shutting down. Redirecting to RunPod Console in:";
+    Object.assign(desc.style, {
+        fontSize: "14px",
+        color: "var(--descrip-text, #c4c9d4)",
+        marginBottom: "20px"
+    });
+
+    const number = document.createElement("div");
+    let seconds = 5;
+    number.textContent = seconds;
+    Object.assign(number.style, {
+        fontSize: "72px",
+        fontWeight: "700",
+        fontFamily: "monospace",
+        color: "#fff",
+        marginBottom: "16px"
+    });
+
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(number);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const timer = setInterval(() => {
+        seconds--;
+        if (seconds <= 0) {
+            clearInterval(timer);
+            window.location.href = "https://console.runpod.io/";
+        } else {
+            number.textContent = seconds;
+        }
+    }, 1000);
+}
+
 // Perform pod shutdown
 async function executeShutdown(overrideAction) {
     const action = overrideAction || getShutdownAction();
     showToast("Shutdown Triggered", "Sending terminate signal to the pod...", "warn");
     
     // Trigger the backend API call to terminate/stop the pod
-    const shutdownPromise = fetch("/runpod/shutdown", {
+    fetch("/runpod/shutdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action })
     }).catch(e => console.error("[RunPod Control] Backend shutdown request failed:", e));
 
-    // Bypass leave-site prompt and redirect
+    // Bypass leave-site prompt and redirect after countdown
     bypassBeforeUnload = true;
     window.onbeforeunload = null;
-    window.location.href = "https://console.runpod.io/";
+    showRedirectCountdown();
 }
 
 // Perform pod restart
