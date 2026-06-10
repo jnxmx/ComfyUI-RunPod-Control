@@ -133,6 +133,11 @@ async function fetchRunPodStatus() {
                     
                     runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
                     runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
+                } else if (runpodStatus.filebrowser_active && fbType === "separate_port") {
+                    const activePort = runpodStatus.filebrowser_port || port;
+                    const podId = runpodStatus.pod_id || window.location.hostname;
+                    runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net/files/ComfyUI/`;
+                    runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net/files/ComfyUI/output/`;
                 } else if (forceShow && !runpodStatus.filebrowser_url) {
                     // Fallback URL generation if separate port was selected but port check failed
                     const podId = runpodStatus.pod_id || window.location.hostname;
