@@ -381,11 +381,11 @@ function ensureUnifiedDropdown(buttonEl) {
     menu.id = "runpod-unified-dropdown";
     Object.assign(menu.style, {
         position: "absolute",
-        background: "var(--base-background, #1f2128)",
-        border: "1px solid var(--interface-stroke, #3c3c3c)",
+        background: "var(--p-menu-background, #18181b)",
+        border: "1px solid var(--p-menu-border-color, #27272a)",
         borderRadius: "8px",
-        boxShadow: "var(--shadow-interface, 0 8px 20px rgba(0,0,0,0.5))",
-        padding: "4px 0",
+        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1), 0 10px 15px -3px rgb(0 0 0 / 0.1)",
+        padding: "4px",
         display: "none",
         flexDirection: "column",
         zIndex: "10001",
@@ -399,17 +399,25 @@ function ensureUnifiedDropdown(buttonEl) {
         item.textContent = text;
         Object.assign(item.style, {
             border: "none",
+            borderRadius: "6px",
             background: "transparent",
-            color: "var(--input-text, #ddd)",
-            padding: "8px 16px",
+            color: "var(--p-menu-item-color, var(--input-text, #f4f4f5))",
+            padding: "8px 12px",
             textAlign: "left",
             cursor: "pointer",
             width: "100%",
             fontSize: "13px",
-            fontFamily: "inherit"
+            fontFamily: "inherit",
+            transition: "background 0.1s ease, color 0.1s ease"
         });
-        item.addEventListener("mouseenter", () => item.style.background = "var(--primary-hover-bg, #2b2f3a)");
-        item.addEventListener("mouseleave", () => item.style.background = "transparent");
+        item.addEventListener("mouseenter", () => {
+            item.style.background = "var(--p-button-primary-background, var(--comfy-menu-primary-bg, #3b82f6))";
+            item.style.color = "var(--p-button-primary-color, #ffffff)";
+        });
+        item.addEventListener("mouseleave", () => {
+            item.style.background = "transparent";
+            item.style.color = "var(--p-menu-item-color, var(--input-text, #f4f4f5))";
+        });
         item.addEventListener("click", (e) => {
             e.stopPropagation();
             hideAllDropdowns();
@@ -751,16 +759,6 @@ app.registerExtension({
 
             // CRITICAL: call immediately — the DOM may already be fully rendered
             queueUpdateUI();
-
-            // Set up drop-down menus logic
-            document.body.addEventListener("mouseover", (e) => {
-                if (unifiedDropdownMenu && unifiedDropdownMenu.style.display === "flex") {
-                    const btn = document.querySelector('button[aria-label="RunPod Control"]');
-                    if (!unifiedDropdownMenu.contains(e.target) && !btn?.contains(e.target)) {
-                        unifiedDropdownMenu.style.display = "none";
-                    }
-                }
-            });
 
             setupJobDetection();
             startTimerCountdown();
