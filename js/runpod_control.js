@@ -107,11 +107,42 @@ function getShutdownAction() {
     return "stop_and_remove";
 }
 
+// Extract clean pod ID and active ComfyUI port from RunPod proxy hostname
+function getRunPodProxyInfo() {
+    const host = window.location.hostname;
+    // Format: {podId}-{port}.proxy.runpod.net
+    const match = host.match(/^([a-z0-9]+)-(\d+)\.proxy\.runpod\.net/i);
+    if (match) {
+        return {
+            podId: match[1],
+            comfyPort: parseInt(match[2], 10)
+        };
+    }
+    // Fallback: Check if port is specified in window.location.port
+    let comfyPort = null;
+    if (window.location.port) {
+        try {
+            comfyPort = parseInt(window.location.port, 10);
+        } catch (e) {}
+    }
+    return {
+        podId: null,
+        comfyPort: comfyPort
+    };
+}
+
 // Check RunPod status from Python backend
 async function fetchRunPodStatus() {
     const port = getFileBrowserPort();
+    const proxyInfo = getRunPodProxyInfo();
+    
+    let url = `/runpod/status?port=${port}`;
+    if (proxyInfo.comfyPort) {
+        url += `&comfy_port=${proxyInfo.comfyPort}`;
+    }
+    
     try {
-        const response = await fetch(`/runpod/status?port=${port}`);
+        const response = await fetch(url);
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
         
@@ -124,25 +155,25 @@ async function fetchRunPodStatus() {
                 runpodStatus.filebrowser_active = true;
                 
                 const fbType = getFileBrowserType();
+                const subpath = getFileBrowserRelativePath();
+                const leadSlash = subpath.startsWith("/") ? "" : "/";
+                const trailSlash = subpath.endsWith("/") ? "" : "/";
+                const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
+
                 if (fbType === "relative_path") {
-                    const subpath = getFileBrowserRelativePath();
-                    const leadSlash = subpath.startsWith("/") ? "" : "/";
-                    const trailSlash = subpath.endsWith("/") ? "" : "/";
-                    const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
                     const origin = window.location.origin.replace(/\/$/, "");
-                    
                     runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
                     runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
                 } else if (runpodStatus.filebrowser_active && fbType === "separate_port") {
                     const activePort = runpodStatus.filebrowser_port || port;
-                    const podId = runpodStatus.pod_id || window.location.hostname;
-                    runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net/files/ComfyUI/`;
-                    runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net/files/ComfyUI/output/`;
+                    const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
+                    runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}`;
+                    runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}output/`;
                 } else if (forceShow && !runpodStatus.filebrowser_url) {
                     // Fallback URL generation if separate port was selected but port check failed
-                    const podId = runpodStatus.pod_id || window.location.hostname;
-                    runpodStatus.filebrowser_url = `https://${podId}-${port}.proxy.runpod.net/files/ComfyUI/`;
-                    runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net/files/ComfyUI/output/`;
+                    const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
+                    runpodStatus.filebrowser_url = `https://${podId}-${port}.proxy.runpod.net${cleanSubpath}`;
+                    runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net${cleanSubpath}output/`;
                 }
             }
         }

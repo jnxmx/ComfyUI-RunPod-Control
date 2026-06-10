@@ -37,14 +37,22 @@ async def get_runpod_status(request):
             pod_id = hostname
             
     # Determine ComfyUI's port to avoid matching it
-    comfyui_port = 8188
+    comfyui_ports = {8188}
     try:
         import server
         prompt_instance = getattr(server.PromptServer, "instance", None)
         if prompt_instance and hasattr(prompt_instance, "port"):
-            comfyui_port = int(prompt_instance.port)
+            comfyui_ports.add(int(prompt_instance.port))
     except Exception:
         pass
+
+    # Also check if client passed the proxy/external port ComfyUI is running on
+    client_comfy_port = request.query.get("comfy_port")
+    if client_comfy_port:
+        try:
+            comfyui_ports.add(int(client_comfy_port))
+        except ValueError:
+            pass
 
     port_param = request.query.get("port", "8080")
     try:
@@ -59,14 +67,14 @@ async def get_runpod_status(request):
     
     if is_runpod and pod_id:
         # 1. First test the user-configured port (if it doesn't conflict with ComfyUI's port)
-        if filebrowser_port != comfyui_port and await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
+        if filebrowser_port not in comfyui_ports and await check_port_open("127.0.0.1", filebrowser_port, timeout=0.5):
             filebrowser_active = True
             detected_port = filebrowser_port
         else:
-            # 2. Probe common fallback ports (excluding ComfyUI's actual port)
+            # 2. Probe common fallback ports (excluding ComfyUI's actual ports)
             fallback_ports = [8080, 8081, 7860, 7861, 8000, 3000, 80]
             for p in fallback_ports:
-                if p == filebrowser_port or p == comfyui_port:
+                if p == filebrowser_port or p in comfyui_ports:
                     continue
                 if await check_port_open("127.0.0.1", p, timeout=0.3):
                     filebrowser_active = True
@@ -85,7 +93,7 @@ async def get_runpod_status(request):
         "filebrowser_port": detected_port,
         "filebrowser_url": filebrowser_url,
         "output_url": output_url,
-        "comfyui_port": comfyui_port
+        "comfyui_ports": list(comfyui_ports)
     })
 
 async def post_runpod_shutdown(request):
