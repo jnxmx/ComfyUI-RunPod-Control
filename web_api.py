@@ -134,6 +134,8 @@ async def post_runpod_shutdown(request):
     # to avoid the request hanging/timeout while the container is being terminated.
     if action == "stop_only":
         cmd = f"runpodctl stop pod {pod_id}"
+    elif action == "restart":
+        cmd = f"runpodctl pod restart {pod_id}"
     else:
         # Default is stop & remove (terminate)
         # To be safe, run remove pod, which handles both stopping and removal.

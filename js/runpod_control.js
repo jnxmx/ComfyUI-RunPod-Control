@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.13 loaded");
+console.log("[RunPod Control] v1.0.14 loaded");
 
 // Global State
 let runpodStatus = {
@@ -236,6 +236,20 @@ async function executeShutdown() {
     window.location.href = "https://console.runpod.io/";
 }
 
+// Perform pod restart
+async function executeRestart() {
+    showToast("Restart Triggered", "Sending restart signal to the pod...", "warn");
+    
+    fetch("/runpod/shutdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restart" })
+    }).catch(e => console.error("[RunPod Control] Backend restart request failed:", e));
+
+    // Redirect to RunPod console so the user can see it coming back up
+    window.location.href = "https://console.runpod.io/";
+}
+
 // Update the Top Action Bar Timer Button display
 function getButtonText() {
     let timerText = "no shutdown";
@@ -272,7 +286,14 @@ function updateButtonUI() {
         btn.title = "";
     }
 
-    const htmlContent = `RunPod <span class="pi pi-power-off" style="margin: 0 4px; font-size: 12px; display: inline-block;"></span>${getButtonText()}`;
+    const isActive = timerState.enabled && !timerState.jobActive;
+    let htmlContent;
+    if (isActive) {
+        htmlContent = `RunPod <span class="pi pi-power-off" style="margin: 0 4px; font-size: 12px; display: inline-block;"></span>${getButtonText()}`;
+    } else {
+        htmlContent = `RunPod`;
+    }
+
     if (btn.innerHTML !== htmlContent) {
         btn.innerHTML = htmlContent;
     }
@@ -447,6 +468,14 @@ function ensureUnifiedDropdown(buttonEl) {
         }
     });
 
+    const restartBtn = createItem("Restart Pod", () => {
+        if (runpodStatus.pod_id) {
+            executeRestart();
+        } else {
+            showToast("Restart Pod", "Pod ID not detected", "warn");
+        }
+    });
+
     const toggleTimerBtn = createItem(timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer", () => {
         timerState.enabled = !timerState.enabled;
         toggleTimerBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
@@ -465,6 +494,7 @@ function ensureUnifiedDropdown(buttonEl) {
     menu.appendChild(outputsBtn);
     menu.appendChild(fbBtn);
     menu.appendChild(infoBtn);
+    menu.appendChild(restartBtn);
     menu.appendChild(toggleTimerBtn);
     menu.appendChild(resetTimerBtn);
 
@@ -485,7 +515,7 @@ function toggleRunPodMenu(event) {
 
     const menu = ensureUnifiedDropdown(btn);
     // Ensure toggle button text is current
-    const toggleBtn = menu.children[3];
+    const toggleBtn = Array.from(menu.children).find(c => c.textContent.includes("shutdown timer"));
     if (toggleBtn) {
         toggleBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
     }
