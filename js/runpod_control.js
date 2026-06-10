@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.19 loaded");
+console.log("[RunPod Control] v1.0.18 loaded");
 
 // Global State
 let runpodStatus = {
@@ -179,7 +179,10 @@ async function fetchRunPodStatus() {
                 const comfyPort = proxyInfo.comfyPort;
                 const isComfyPort = comfyuiInternalPorts.includes(activePort) || (comfyPort && activePort === comfyPort);
 
-                const shouldExposeOnSeparatePort = (fbType === "separate_port");
+                // Auto-correct: If the active FileBrowser port is different from ComfyUI's ports,
+                // we MUST route to a separate proxy port regardless of the setting, as it is physically
+                // not served on the ComfyUI port.
+                const shouldExposeOnSeparatePort = (fbType === "separate_port") || (runpodStatus.filebrowser_active && !isComfyPort);
 
                 if (shouldExposeOnSeparatePort) {
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
@@ -196,37 +199,10 @@ async function fetchRunPodStatus() {
                     runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net${cleanOutputSubpath}`;
                 }
 
-                // OVERRIDE: Check if we are accessed via direct TCP IP connection (bypassing HTTP proxy)
-                const isIpAddress = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(window.location.hostname);
-                const currentPort = window.location.port ? parseInt(window.location.port, 10) : null;
-                
-                let isDirectTcp = isIpAddress;
-                if (!isDirectTcp && currentPort && runpodStatus.tcp_port_mappings) {
-                    for (const intPort of comfyuiInternalPorts) {
-                        const extPort = runpodStatus.tcp_port_mappings[intPort];
-                        if (extPort && currentPort === extPort) {
-                            isDirectTcp = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (isDirectTcp) {
-                    const activePort = runpodStatus.filebrowser_port || port;
-                    const externalFbPort = runpodStatus.tcp_port_mappings ? runpodStatus.tcp_port_mappings[activePort] : null;
-                    const host = window.location.hostname;
-                    
-                    if (externalFbPort) {
-                        console.log(`[RunPod Control] Direct TCP detected. Mapping internal port ${activePort} -> external ${externalFbPort}`);
-                        runpodStatus.filebrowser_url = `http://${host}:${externalFbPort}${cleanFbSubpath}`;
-                        runpodStatus.output_url = `http://${host}:${externalFbPort}${cleanOutputSubpath}`;
-                    } else {
-                        // If mapping not found, warn the user but fall back to the raw internal port on the host
-                        console.warn(`[RunPod Control] Direct TCP detected but external mapping for FileBrowser port ${activePort} not found in environment.`);
-                        runpodStatus.filebrowser_url = `http://${host}:${activePort}${cleanFbSubpath}`;
-                        runpodStatus.output_url = `http://${host}:${activePort}${cleanOutputSubpath}`;
-                    }
-                }
+                // Note: Even if ComfyUI is accessed via a direct TCP IP address,
+                // FileBrowser is proxy-only (no RUNPOD_TCP_PORT_* mapping for it),
+                // so we always use the https://<pod_id>-<port>.proxy.runpod.net URL.
+                // No override needed here.
             }
         }
         return runpodStatus.is_runpod;
