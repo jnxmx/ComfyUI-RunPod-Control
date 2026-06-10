@@ -86,9 +86,21 @@ async def get_runpod_status(request):
             filebrowser_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/"
             output_url = f"https://{pod_id}-{detected_port}.proxy.runpod.net/files/ComfyUI/output/"
 
+    # Collect all direct TCP port mappings from environment variables
+    tcp_port_mappings = {}
+    for key, value in os.environ.items():
+        if key.startswith("RUNPOD_TCP_PORT_"):
+            try:
+                internal_port = int(key.replace("RUNPOD_TCP_PORT_", ""))
+                tcp_port_mappings[internal_port] = int(value)
+            except ValueError:
+                pass
+
     return web.json_response({
         "is_runpod": is_runpod,
         "pod_id": pod_id,
+        "public_ip": os.environ.get("RUNPOD_PUBLIC_IP"),
+        "tcp_port_mappings": tcp_port_mappings,
         "filebrowser_active": filebrowser_active,
         "filebrowser_port": detected_port,
         "filebrowser_url": filebrowser_url,
