@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.14 loaded");
+console.log("[RunPod Control] v1.0.15 loaded");
 
 // Global State
 let runpodStatus = {
@@ -24,6 +24,15 @@ let timerState = {
 let unifiedDropdownMenu = null;
 let countdownOverlay = null;
 let decorateQueued = false;
+let bypassBeforeUnload = false;
+
+// Intercept and prevent "Confirm on close/leave" prompts if redirecting intentionally
+window.addEventListener("beforeunload", (e) => {
+    if (bypassBeforeUnload) {
+        e.stopImmediatePropagation();
+        delete e.returnValue;
+    }
+}, true);
 
 // Helper: Show notification toast
 function showToast(summary, detail, severity = "info") {
@@ -231,8 +240,9 @@ async function executeShutdown() {
         body: JSON.stringify({ action })
     }).catch(e => console.error("[RunPod Control] Backend shutdown request failed:", e));
 
-    // Instantly redirect the browser window to RunPod console
-    // so the user does not get stuck on a freezing/hanging webpage as the pod dies
+    // Bypass leave-site prompt and redirect
+    bypassBeforeUnload = true;
+    window.onbeforeunload = null;
     window.location.href = "https://console.runpod.io/";
 }
 
@@ -246,7 +256,9 @@ async function executeRestart() {
         body: JSON.stringify({ action: "restart" })
     }).catch(e => console.error("[RunPod Control] Backend restart request failed:", e));
 
-    // Redirect to RunPod console so the user can see it coming back up
+    // Bypass leave-site prompt and redirect
+    bypassBeforeUnload = true;
+    window.onbeforeunload = null;
     window.location.href = "https://console.runpod.io/";
 }
 
