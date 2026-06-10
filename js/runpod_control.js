@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[RunPod Control] v1.0.17 loaded");
+console.log("[RunPod Control] v1.0.18 loaded");
 
 // Global State
 let runpodStatus = {
@@ -168,6 +168,12 @@ async function fetchRunPodStatus() {
                 const trailSlash = subpath.endsWith("/") ? "" : "/";
                 const cleanSubpath = `${leadSlash}${subpath}${trailSlash}`;
 
+                let cleanFbSubpath = cleanSubpath;
+                if (!cleanFbSubpath.endsWith("/ComfyUI/")) {
+                    cleanFbSubpath = `${cleanFbSubpath}ComfyUI/`;
+                }
+                const cleanOutputSubpath = `${cleanFbSubpath}output/`;
+
                 const activePort = runpodStatus.filebrowser_port || port;
                 const comfyuiInternalPorts = runpodStatus.comfyui_ports || [8188];
                 const comfyPort = proxyInfo.comfyPort;
@@ -180,17 +186,17 @@ async function fetchRunPodStatus() {
 
                 if (shouldExposeOnSeparatePort) {
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
-                    runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}`;
-                    runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanSubpath}output/`;
+                    runpodStatus.filebrowser_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanFbSubpath}`;
+                    runpodStatus.output_url = `https://${podId}-${activePort}.proxy.runpod.net${cleanOutputSubpath}`;
                 } else if (fbType === "relative_path") {
                     const origin = window.location.origin.replace(/\/$/, "");
-                    runpodStatus.filebrowser_url = `${origin}${cleanSubpath}`;
-                    runpodStatus.output_url = `${origin}${cleanSubpath}output/`;
+                    runpodStatus.filebrowser_url = `${origin}${cleanFbSubpath}`;
+                    runpodStatus.output_url = `${origin}${cleanOutputSubpath}`;
                 } else if (forceShow && !runpodStatus.filebrowser_url) {
                     // Fallback URL generation if separate port was selected but port check failed
                     const podId = runpodStatus.pod_id || proxyInfo.podId || window.location.hostname;
-                    runpodStatus.filebrowser_url = `https://${podId}-${port}.proxy.runpod.net${cleanSubpath}`;
-                    runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net${cleanSubpath}output/`;
+                    runpodStatus.filebrowser_url = `https://${podId}-${port}.proxy.runpod.net${cleanFbSubpath}`;
+                    runpodStatus.output_url = `https://${podId}-${port}.proxy.runpod.net${cleanOutputSubpath}`;
                 }
 
                 // OVERRIDE: Check if we are accessed via direct TCP IP connection (bypassing HTTP proxy)
@@ -215,13 +221,13 @@ async function fetchRunPodStatus() {
                     
                     if (externalFbPort) {
                         console.log(`[RunPod Control] Direct TCP detected. Mapping internal port ${activePort} -> external ${externalFbPort}`);
-                        runpodStatus.filebrowser_url = `http://${host}:${externalFbPort}${cleanSubpath}`;
-                        runpodStatus.output_url = `http://${host}:${externalFbPort}${cleanSubpath}output/`;
+                        runpodStatus.filebrowser_url = `http://${host}:${externalFbPort}${cleanFbSubpath}`;
+                        runpodStatus.output_url = `http://${host}:${externalFbPort}${cleanOutputSubpath}`;
                     } else {
                         // If mapping not found, warn the user but fall back to the raw internal port on the host
                         console.warn(`[RunPod Control] Direct TCP detected but external mapping for FileBrowser port ${activePort} not found in environment.`);
-                        runpodStatus.filebrowser_url = `http://${host}:${activePort}${cleanSubpath}`;
-                        runpodStatus.output_url = `http://${host}:${activePort}${cleanSubpath}output/`;
+                        runpodStatus.filebrowser_url = `http://${host}:${activePort}${cleanFbSubpath}`;
+                        runpodStatus.output_url = `http://${host}:${activePort}${cleanOutputSubpath}`;
                     }
                 }
             }
