@@ -1,6 +1,8 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
+console.log("[RunPod Control] v1.0.13 loaded");
+
 // Global State
 let runpodStatus = {
     is_runpod: false,
@@ -42,8 +44,9 @@ function showToast(summary, detail, severity = "info") {
 function getConfiguredMinutes() {
     const settingsUi = app?.ui?.settings;
     if (settingsUi?.getSettingValue) {
-        const val = settingsUi.getSettingValue("runpod.shutdown_minutes");
-        if (typeof val === "number" && val > 0) return val;
+        let val = settingsUi.getSettingValue("runpod.shutdown_minutes");
+        if (typeof val === "string") val = parseInt(val, 10);
+        if (typeof val === "number" && !isNaN(val) && val > 0) return val;
     }
     return 30;
 }
@@ -244,9 +247,7 @@ function getButtonText() {
             timerText = `${mins}m`;
         }
     }
-    const gpu = runpodStatus.gpu_name || "GPU";
-    const bal = runpodStatus.balance || "?";
-    return `RunPod [${timerText}] [${gpu}] [${bal}]$`;
+    return timerText;
 }
 
 function updateButtonUI() {
@@ -267,12 +268,13 @@ function updateButtonUI() {
             whiteSpace: "pre"
         });
         
-        // Disable original tooltip since our button is text
+        // Disable original tooltip since our button is custom
         btn.title = "";
     }
 
-    if (btn.textContent !== getButtonText()) {
-        btn.textContent = getButtonText();
+    const htmlContent = `RunPod <span class="pi pi-power-off" style="margin: 0 4px; font-size: 12px; display: inline-block;"></span>${getButtonText()}`;
+    if (btn.innerHTML !== htmlContent) {
+        btn.innerHTML = htmlContent;
     }
 }
 
@@ -628,12 +630,8 @@ function queueUpdateUI() {
     });
 }
 
-// Global click/resize listeners to auto-dismiss menus
+// Global click listeners to auto-dismiss menus
 document.addEventListener("click", () => {
-    hideAllDropdowns();
-});
-
-window.addEventListener("resize", () => {
     hideAllDropdowns();
 });
 
@@ -642,7 +640,7 @@ app.registerExtension({
     name: "ComfyUI_RunPod_Control",
     actionBarButtons: [
         {
-            icon: "pi pi-server",
+            icon: "pi pi-power-off",
             tooltip: "RunPod Control",
             onClick: toggleRunPodMenu
         }
