@@ -31,12 +31,17 @@ class RunPodTimer:
                     continue
                 
                 server_instance = prompt_server.instance
+                has_jobs = False
                 try:
-                    queue_info = server_instance.get_queue_info()
-                    running = queue_info.get("queue_running", [])
-                    pending = queue_info.get("queue_pending", [])
-                    has_jobs = (len(running) + len(pending)) > 0
+                    queue = getattr(server_instance, "prompt_queue", None)
+                    if queue:
+                        if hasattr(queue, "get_current_queue_volatile"):
+                            running, pending = queue.get_current_queue_volatile()
+                        else:
+                            running, pending = queue.get_current_queue()
+                        has_jobs = (len(running) + len(pending)) > 0
                 except Exception as e:
+                    print(f"[ComfyUI-RunPod-Control] Exception checking prompt queue: {e}")
                     has_jobs = False
 
                 if has_jobs:
