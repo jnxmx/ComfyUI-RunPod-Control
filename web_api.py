@@ -12,6 +12,38 @@ class RunPodTimer:
         self.shutdown_action = "stop_and_remove"
         self._task = None
 
+    def check_huggingface_download_active(self) -> bool:
+        import sys
+        for mod_name, mod in list(sys.modules.items()):
+            if "ComfyUI_HuggingFace_Downloader" in mod_name and mod_name.endswith(".web_api"):
+                status_dict = getattr(mod, "download_status", None)
+                if isinstance(status_dict, dict):
+                    lock = getattr(mod, "download_status_lock", None)
+                    if lock:
+                        try:
+                            acquired = lock.acquire(blocking=False)
+                            try:
+                                for item in status_dict.values():
+                                    if isinstance(item, dict):
+                                        status = str(item.get("status") or "").lower().strip()
+                                        if status in {"pending", "downloading", "verifying", "finalizing", "cancelling"}:
+                                            return True
+                            finally:
+                                if acquired:
+                                    lock.release()
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            for item in list(status_dict.values()):
+                                if isinstance(item, dict):
+                                    status = str(item.get("status") or "").lower().strip()
+                                    if status in {"pending", "downloading", "verifying", "finalizing", "cancelling"}:
+                                        return True
+                        except Exception:
+                            pass
+        return False
+
     def start(self):
         if self._task is None:
             self._task = asyncio.create_task(self._tick_loop())
@@ -44,7 +76,7 @@ class RunPodTimer:
                     print(f"[ComfyUI-RunPod-Control] Exception checking prompt queue: {e}")
                     has_jobs = False
 
-                if has_jobs:
+                if has_jobs or self.check_huggingface_download_active():
                     self.job_active = True
                     # Reset timer back to duration if job is active
                     self.seconds_left = self.duration_seconds
