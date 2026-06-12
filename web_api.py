@@ -26,7 +26,7 @@ class RunPodTimer:
                                 for item in status_dict.values():
                                     if isinstance(item, dict):
                                         status = str(item.get("status") or "").lower().strip()
-                                        if status in {"pending", "downloading", "verifying", "finalizing", "cancelling"}:
+                                        if status in {"pending", "downloading", "downloaded", "verifying", "finalizing", "cancelling"}:
                                             return True
                             finally:
                                 if acquired:
@@ -38,7 +38,7 @@ class RunPodTimer:
                             for item in list(status_dict.values()):
                                 if isinstance(item, dict):
                                     status = str(item.get("status") or "").lower().strip()
-                                    if status in {"pending", "downloading", "verifying", "finalizing", "cancelling"}:
+                                    if status in {"pending", "downloading", "downloaded", "verifying", "finalizing", "cancelling"}:
                                         return True
                         except Exception:
                             pass
