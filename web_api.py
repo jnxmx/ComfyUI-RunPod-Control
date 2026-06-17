@@ -44,6 +44,24 @@ class RunPodTimer:
                             pass
         return False
 
+    def check_comfyui_manager_active(self) -> bool:
+        import sys
+        for mod_name, mod in list(sys.modules.items()):
+            if "ComfyUI-Manager" in mod_name and mod_name.endswith(".manager_server"):
+                # 1. Check if task worker thread is active
+                worker_thread = getattr(mod, "task_worker_thread", None)
+                if worker_thread and hasattr(worker_thread, "is_alive") and worker_thread.is_alive():
+                    return True
+                # 2. Check if there are tasks in progress
+                in_progress = getattr(mod, "tasks_in_progress", None)
+                if isinstance(in_progress, (list, dict, set)) and len(in_progress) > 0:
+                    return True
+                # 3. Check if there are queued tasks
+                t_queue = getattr(mod, "task_queue", None)
+                if t_queue and hasattr(t_queue, "qsize") and t_queue.qsize() > 0:
+                    return True
+        return False
+
     def start(self):
         if self._task is None:
             self._task = asyncio.create_task(self._tick_loop())
@@ -76,7 +94,7 @@ class RunPodTimer:
                     print(f"[ComfyUI-RunPod-Control] Exception checking prompt queue: {e}")
                     has_jobs = False
 
-                if has_jobs or self.check_huggingface_download_active():
+                if has_jobs or self.check_huggingface_download_active() or self.check_comfyui_manager_active():
                     self.job_active = True
                     # Reset timer back to duration if job is active
                     self.seconds_left = self.duration_seconds

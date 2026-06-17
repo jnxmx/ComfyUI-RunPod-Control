@@ -362,7 +362,7 @@ function updateButtonUI() {
     const isActive = timerState.enabled && !timerState.jobActive;
     let htmlContent;
     if (isActive) {
-        htmlContent = `RunPod<span class="pi pi-power-off" style="margin-left: 6px; margin-right: 2px; font-size: 12px; display: inline-block; vertical-align: middle;"></span>${getButtonText()}`;
+        htmlContent = `RunPod<span class="pi pi-power-off" style="margin-left: -2px; margin-right: -2px; font-size: 12px; display: inline-block; vertical-align: middle;"></span>${getButtonText()}`;
     } else {
         htmlContent = `RunPod`;
     }
@@ -797,11 +797,6 @@ function ensureUnifiedDropdown(buttonEl) {
         updateButtonUI();
     });
 
-    const resetTimerBtn = createItem("Reset shutdown timer", () => {
-        resetTimer();
-        showToast("Timer Reset", `Shutdown timer reset to ${getConfiguredMinutes()} minutes.`, "success");
-    });
-
     const killPodBtn = createItem("Kill Pod", () => {
         if (runpodStatus.pod_id) {
             const dialog = new KillPodDialog();
@@ -816,7 +811,6 @@ function ensureUnifiedDropdown(buttonEl) {
     menu.appendChild(infoBtn);
     menu.appendChild(restartBtn);
     menu.appendChild(toggleTimerBtn);
-    menu.appendChild(resetTimerBtn);
     menu.appendChild(killPodBtn);
 
     document.body.appendChild(menu);
@@ -826,6 +820,10 @@ function ensureUnifiedDropdown(buttonEl) {
 
 function toggleRunPodMenu(event) {
     event?.stopPropagation?.();
+    
+    // Automatically reset the timer on click/menu open
+    resetTimer();
+
     const btn = document.querySelector('button[aria-label="RunPod Control"]');
     if (!btn) return;
     
