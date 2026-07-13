@@ -1,7 +1,9 @@
 import os
 import asyncio
 import shutil
+import logging
 from aiohttp import web
+import comfy.model_management as comfy_mm
 
 class RunPodTimer:
     def __init__(self):
@@ -372,12 +374,143 @@ async def post_runpod_timer(request):
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
+_cgroup_ram_patch_applied = False
+_cgroup_ram_patch_enabled = True
+_ws_keepalive_task = None
+_ws_keepalive_enabled = True
+
+def _read_int_file(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+        if not raw or raw == "max":
+            return None
+        return int(raw)
+    except Exception:
+        return None
+
+def _read_cgroup_memory_limit_and_usage():
+    # cgroup v2
+    v2_limit = _read_int_file("/sys/fs/cgroup/memory.max")
+    v2_usage = _read_int_file("/sys/fs/cgroup/memory.current")
+    if v2_limit is not None or v2_usage is not None:
+        limit = v2_limit
+        usage = v2_usage if v2_usage is not None else 0
+    else:
+        # cgroup v1
+        limit = _read_int_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        usage = _read_int_file("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+        usage = usage if usage is not None else 0
+
+    # Very large limits in cgroup v1 commonly mean "unlimited".
+    if limit is not None and limit >= (1 << 60):
+        limit = None
+    if usage < 0:
+        usage = 0
+    return limit, usage
+
+def _patch_comfy_ram_detection_for_cgroups():
+    """Monkey-patch ComfyUI RAM detection to respect cgroup memory limits."""
+    global _cgroup_ram_patch_applied
+    global _cgroup_ram_patch_enabled
+    if _cgroup_ram_patch_applied:
+        return
+
+    try:
+        original_virtual_memory = comfy_mm.psutil.virtual_memory
+        sample = original_virtual_memory()
+        host_total = int(getattr(sample, "total", 0) or 0)
+        host_available = int(getattr(sample, "available", 0) or 0)
+        limit, usage = _read_cgroup_memory_limit_and_usage()
+        if not limit or host_total <= 0 or limit >= host_total:
+            return
+
+        def _virtual_memory_cgroup_aware():
+            vm = original_virtual_memory()
+            if not _cgroup_ram_patch_enabled:
+                return vm
+            vm_total = int(getattr(vm, "total", 0) or 0)
+            vm_available = int(getattr(vm, "available", 0) or 0)
+            c_limit, c_usage = _read_cgroup_memory_limit_and_usage()
+            if not c_limit or vm_total <= 0 or c_limit >= vm_total:
+                return vm
+            effective_total = min(vm_total, c_limit)
+            cgroup_free = max(c_limit - (c_usage or 0), 0)
+            effective_available = min(vm_available, cgroup_free, effective_total)
+            try:
+                return vm._replace(total=effective_total, available=effective_available)
+            except Exception:
+                return vm
+
+        comfy_mm.psutil.virtual_memory = _virtual_memory_cgroup_aware
+        _cgroup_ram_patch_applied = True
+        _cgroup_ram_patch_enabled = True
+
+        limit_gib = limit / (1024 ** 3)
+        host_gib = host_total / (1024 ** 3)
+        avail_gib = min(host_available, max(limit - usage, 0)) / (1024 ** 3)
+        print(
+            f"[ComfyUI-RunPod-Control] Cgroup RAM patch enabled: host={host_gib:.2f} GiB, "
+            f"limit={limit_gib:.2f} GiB, available={avail_gib:.2f} GiB"
+        )
+    except Exception as e:
+        print(f"[ComfyUI-RunPod-Control] Failed to apply cgroup RAM patch: {e}")
+
+async def _ws_keepalive_loop():
+    """Send lightweight periodic websocket traffic to reduce proxy idle disconnects."""
+    while True:
+        try:
+            import server
+            prompt_server = getattr(server, "PromptServer", None)
+            server_instance = getattr(prompt_server, "instance", None) if prompt_server is not None else None
+            sockets = getattr(server_instance, "sockets", None) if server_instance is not None else None
+            if _ws_keepalive_enabled and server_instance is not None and sockets:
+                stale_ids = []
+                for sid, ws in list(sockets.items()):
+                    try:
+                        if ws is None or ws.closed:
+                            stale_ids.append(sid)
+                            continue
+                        # Use websocket ping control frame so frontend APIs stay silent.
+                        await ws.ping()
+                    except Exception:
+                        stale_ids.append(sid)
+                for sid in stale_ids:
+                    sockets.pop(sid, None)
+                    metadata = getattr(server_instance, "sockets_metadata", None)
+                    if metadata is not None:
+                        metadata.pop(sid, None)
+        except Exception:
+            pass
+        await asyncio.sleep(45)
+
+def _ensure_ws_keepalive_task():
+    global _ws_keepalive_task
+    if _ws_keepalive_task is not None and not _ws_keepalive_task.done():
+        return
+    try:
+        import server
+        prompt_server = getattr(server, "PromptServer", None)
+        server_instance = getattr(prompt_server, "instance", None) if prompt_server is not None else None
+        loop = getattr(server_instance, "loop", None) if server_instance is not None else None
+        if loop is None:
+            return
+        _ws_keepalive_task = loop.create_task(_ws_keepalive_loop())
+        print("[ComfyUI-RunPod-Control] WebSocket keepalive task started.")
+    except Exception as e:
+        print(f"[ComfyUI-RunPod-Control] Failed to start WebSocket keepalive task: {e}")
+        _ws_keepalive_task = None
+
 def setup(app):
     if app is None:
         return
     
     # Start the background timer task
     runpod_timer.start()
+    
+    # Apply cgroup-aware RAM patch and WebSocket keepalive task
+    _patch_comfy_ram_detection_for_cgroups()
+    _ensure_ws_keepalive_task()
     
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
     _safe_add_route(app, "POST", "/runpod/shutdown", post_runpod_shutdown)
