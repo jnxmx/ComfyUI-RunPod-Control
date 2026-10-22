@@ -2,8 +2,6 @@ import os
 import asyncio
 import shutil
 import logging
-import threading
-from pathlib import Path
 from aiohttp import web
 import comfy.model_management as comfy_mm
 
@@ -532,53 +530,6 @@ def _ensure_ws_keepalive_task():
         print(f"[ComfyUI-RunPod-Control] Failed to start WebSocket keepalive task: {e}")
         _ws_keepalive_task = None
 
-def _heal_fizgig_runtime():
-    """If running in a container with an outdated /start.sh or broken Fizgig symlinks, heal them."""
-    try:
-        # 1. Check if /start.sh exists and is outdated
-        start_sh = Path("/start.sh")
-        if start_sh.is_file():
-            text = start_sh.read_text(encoding="utf-8", errors="ignore")
-            if "is_fizgig_venv_healthy" not in text or "START_SH_UPDATED" not in text:
-                import urllib.request
-                url = "https://raw.githubusercontent.com/jnxmx/130/main/start.sh"
-                req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-RunPod-Control"})
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    new_text = resp.read().decode("utf-8")
-                    if "is_fizgig_venv_healthy" in new_text and len(new_text) > 10000:
-                        start_sh.write_text(new_text, encoding="utf-8")
-                        os.chmod("/start.sh", 0o755)
-                        print("[ComfyUI-RunPod-Control] Successfully updated /start.sh to latest version from jnxmx/130.")
-    except Exception as e:
-        print(f"[ComfyUI-RunPod-Control] Notice: /start.sh update check skipped: {e}")
-
-    try:
-        # 2. Clean up broken symlinks in /workspace/Fizgig/venv that cause uv ENOTDIR errors
-        venv_site = Path("/workspace/Fizgig/venv/lib/python3.12/site-packages")
-        if venv_site.is_dir():
-            for pat in ["huggingface_hub*", "hf_transfer*", "hf-transfer*"]:
-                for p in venv_site.glob(pat):
-                    if p.is_symlink() or p.is_file():
-                        p.unlink(missing_ok=True)
-                        print(f"[ComfyUI-RunPod-Control] Removed broken symlink/file: {p}")
-                    elif p.is_dir() and p.name.endswith((".dist-info", ".egg-info")):
-                        shutil.rmtree(p, ignore_errors=True)
-                        print(f"[ComfyUI-RunPod-Control] Removed legacy dist-info: {p}")
-
-        # 3. If /tmp/fizgig_prep.done exists but Fizgig venv cannot import diffusers, reset prep markers
-        fizgig_py = Path("/workspace/Fizgig/venv/bin/python")
-        if fizgig_py.is_file():
-            import subprocess
-            res = subprocess.run([str(fizgig_py), "-c", "import diffusers, transformers"], capture_output=True)
-            if res.returncode != 0:
-                for marker in ["/tmp/fizgig_prep.done", "/workspace/Fizgig/.prepared", "/workspace/Fizgig/venv/.isolated_torch_linked"]:
-                    p = Path(marker)
-                    if p.exists():
-                        p.unlink(missing_ok=True)
-                        print(f"[ComfyUI-RunPod-Control] Removed stale/invalid prep marker: {marker}")
-    except Exception as e:
-        print(f"[ComfyUI-RunPod-Control] Notice: Fizgig venv check skipped: {e}")
-
 def setup(app):
     if app is None:
         return
@@ -586,10 +537,9 @@ def setup(app):
     # Start the background timer task
     runpod_timer.start()
     
-    # Apply cgroup-aware RAM patch, WebSocket keepalive task, and runtime environment healing
+    # Apply cgroup-aware RAM patch and WebSocket keepalive task
     _patch_comfy_ram_detection_for_cgroups()
     _ensure_ws_keepalive_task()
-    threading.Thread(target=_heal_fizgig_runtime, daemon=True).start()
     
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
     _safe_add_route(app, "POST", "/runpod/shutdown", post_runpod_shutdown)
