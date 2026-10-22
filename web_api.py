@@ -5,11 +5,38 @@ import logging
 from aiohttp import web
 import comfy.model_management as comfy_mm
 
+def is_timer_disabled_by_env() -> bool:
+    for var in [
+        "DISABLE_SHUTDOWN_TIMER",
+        "RUNPOD_DISABLE_SHUTDOWN_TIMER",
+        "DISABLE_TIMER",
+        "COMFYUI_DISABLE_SHUTDOWN_TIMER",
+    ]:
+        val = os.environ.get(var, "").strip().lower()
+        if val in {"1", "true", "yes", "on", "enable", "enabled"}:
+            return True
+    for var in [
+        "RUNPOD_TIMER_ENABLED",
+        "RUNPOD_SHUTDOWN_TIMER_ENABLED",
+        "SHUTDOWN_TIMER_ENABLED",
+        "ENABLE_SHUTDOWN_TIMER",
+    ]:
+        val = os.environ.get(var, "").strip().lower()
+        if val in {"0", "false", "no", "off", "disable", "disabled"}:
+            return True
+    return False
+
 class RunPodTimer:
     def __init__(self):
-        self.enabled = True
+        self.enabled = not is_timer_disabled_by_env()
         self.duration_seconds = 1800  # Default 30 min
-        self.seconds_left = 1800
+        try:
+            mins_env = os.environ.get("RUNPOD_SHUTDOWN_MINUTES") or os.environ.get("SHUTDOWN_MINUTES")
+            if mins_env:
+                self.duration_seconds = max(int(mins_env) * 60, 60)
+        except Exception:
+            pass
+        self.seconds_left = self.duration_seconds
         self.job_active = False
         self.shutdown_action = "stop_and_remove"
         self._task = None
@@ -67,7 +94,8 @@ class RunPodTimer:
     def start(self):
         if self._task is None:
             self._task = asyncio.create_task(self._tick_loop())
-            print("[ComfyUI-RunPod-Control] Background timer task started.")
+            status_desc = "ENABLED" if self.enabled else "DISABLED (via env)"
+            print(f"[ComfyUI-RunPod-Control] Background timer task started (shutdown timer is {status_desc}).")
 
     async def _tick_loop(self):
         # Give the server some time to initialize fully
@@ -279,7 +307,8 @@ async def get_runpod_status(request):
             "seconds_left": runpod_timer.seconds_left,
             "duration_seconds": runpod_timer.duration_seconds,
             "job_active": runpod_timer.job_active,
-            "shutdown_action": runpod_timer.shutdown_action
+            "shutdown_action": runpod_timer.shutdown_action,
+            "env_disabled": is_timer_disabled_by_env()
         }
     })
 

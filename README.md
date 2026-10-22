@@ -18,6 +18,16 @@ cd ComfyUI/custom_nodes/
 git clone https://github.com/jnxmx/ComfyUI-RunPod-Control.git
 ```
 
+## Environment Variables
+
+You can configure default behaviors via container environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `DISABLE_SHUTDOWN_TIMER` / `RUNPOD_DISABLE_SHUTDOWN_TIMER` | `0` | Set to `1` (or `true`) to disable the idle shutdown timer by default on startup. |
+| `RUNPOD_SHUTDOWN_MINUTES` | `30` | Initial idle timer countdown duration in minutes. |
+| `RUNPOD_TIMER_ENABLED` | `1` | Set to `0` (or `false`) to disable the timer on startup. |
+
 ## How It Works Under the Hood
 
 1. **Detection**: On start, the frontend checks if the environment variable `RUNPOD_POD_ID` is set via a custom local backend route (`/runpod/status`). If it is not running on RunPod, the UI buttons are kept completely hidden (silent mode).
