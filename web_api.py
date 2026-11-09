@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import shutil
 import logging
@@ -312,7 +313,72 @@ async def get_runpod_status(request):
         }
     })
 
+def restart_comfyui_process():
+    """Restarts the ComfyUI Python process."""
+    try:
+        if hasattr(sys.stdout, "close_log"):
+            sys.stdout.close_log()
+    except Exception:
+        pass
+
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+    if '__COMFY_CLI_SESSION__' in os.environ:
+        try:
+            with open(os.path.join(os.environ['__COMFY_CLI_SESSION__'] + '.reboot'), 'w'):
+                pass
+            print("[ComfyUI-RunPod-Control] Restarting via Comfy-CLI session...", flush=True)
+            exit(0)
+        except Exception as e:
+            print(f"[ComfyUI-RunPod-Control] Comfy-CLI reboot error: {e}", flush=True)
+
+    sys_argv = sys.argv.copy()
+    if '--windows-standalone-build' in sys_argv:
+        sys_argv.remove('--windows-standalone-build')
+
+    if sys_argv and sys_argv[0].endswith("__main__.py"):
+        module_name = os.path.basename(os.path.dirname(sys_argv[0]))
+        cmds = [sys.executable, '-m', module_name] + sys_argv[1:]
+    elif sys.platform.startswith('win32'):
+        cmds = ['"' + sys.executable + '"', '"' + sys_argv[0] + '"'] + sys_argv[1:]
+    else:
+        cmds = [sys.executable] + sys_argv
+
+    print(f"[ComfyUI-RunPod-Control] Restarting ComfyUI with: {cmds}", flush=True)
+    try:
+        os.execv(sys.executable, cmds)
+    except Exception as e:
+        print(f"[ComfyUI-RunPod-Control] os.execv failed: {e}", flush=True)
+        import subprocess
+        subprocess.Popen(cmds)
+        os._exit(0)
+
+async def post_runpod_restart(request):
+    async def do_restart():
+        await asyncio.sleep(0.5)
+        restart_comfyui_process()
+
+    asyncio.create_task(do_restart())
+    return web.json_response({
+        "success": True,
+        "message": "ComfyUI server is restarting..."
+    })
+
 async def post_runpod_shutdown(request):
+    # Read shutdown action from request body (stop only vs stop and remove vs restart)
+    try:
+        body = await request.json()
+        action = body.get("action", "stop_and_remove")
+    except Exception:
+        action = "stop_and_remove"
+
+    if action == "restart":
+        return await post_runpod_restart(request)
+
     pod_id = os.environ.get("RUNPOD_POD_ID")
     if not pod_id:
         return web.json_response({"success": False, "error": "Not running on RunPod or RUNPOD_POD_ID env variable missing."}, status=400)
@@ -324,20 +390,11 @@ async def post_runpod_shutdown(request):
             "success": False,
             "error": "runpodctl CLI is not installed or not found in PATH."
         }, status=500)
-        
-    # Read shutdown action from request body (stop only vs stop and remove)
-    try:
-        body = await request.json()
-        action = body.get("action", "stop_and_remove")
-    except Exception:
-        action = "stop_and_remove"
-        
+
     # We will trigger the command in the background after returning the response
     # to avoid the request hanging/timeout while the container is being terminated.
     if action == "stop_only":
         cmd = f"runpodctl stop pod {pod_id}"
-    elif action == "restart":
-        cmd = f"runpodctl pod restart {pod_id}"
     else:
         # Default is stop & remove (terminate)
         # To be safe, run remove pod, which handles both stopping and removal.
@@ -543,4 +600,6 @@ def setup(app):
     
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
     _safe_add_route(app, "POST", "/runpod/shutdown", post_runpod_shutdown)
+    _safe_add_route(app, "POST", "/runpod/restart", post_runpod_restart)
+    _safe_add_route(app, "GET", "/runpod/restart", post_runpod_restart)
     _safe_add_route(app, "POST", "/runpod/timer", post_runpod_timer)

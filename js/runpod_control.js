@@ -317,20 +317,157 @@ async function executeShutdown(overrideAction) {
     showRedirectCountdown();
 }
 
-// Perform pod restart
-async function executeRestart() {
-    showToast("Restart Triggered", "Sending restart signal to the pod...", "warn");
-    
-    fetch("/runpod/shutdown", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "restart" })
-    }).catch(e => console.error("[RunPod Control] Backend restart request failed:", e));
+// Show restarting overlay and reconnection feedback
+function showRestartingOverlay() {
+    const existing = document.getElementById("runpod-restarting-overlay");
+    if (existing) existing.remove();
 
-    // Bypass leave-site prompt and redirect
+    const overlay = document.createElement("div");
+    overlay.id = "runpod-restarting-overlay";
+    Object.assign(overlay.style, {
+        position: "fixed",
+        inset: "0",
+        background: "rgba(0, 0, 0, 0.8)",
+        backdropFilter: "blur(8px)",
+        webkitBackdropFilter: "blur(8px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: "1000000",
+        fontFamily: "var(--font-inter, Inter, sans-serif)",
+        color: "#fff"
+    });
+
+    const card = document.createElement("div");
+    Object.assign(card.style, {
+        background: "var(--base-background, var(--comfy-menu-bg, #1f2128))",
+        border: "1px solid var(--interface-stroke, var(--border-color, #3c4452))",
+        borderRadius: "16px",
+        padding: "32px",
+        textAlign: "center",
+        boxShadow: "var(--shadow-interface, 0 12px 28px rgba(0, 0, 0, 0.45))",
+        minWidth: "340px",
+        maxWidth: "420px"
+    });
+
+    const spinner = document.createElement("div");
+    Object.assign(spinner.style, {
+        width: "48px",
+        height: "48px",
+        border: "4px solid rgba(255, 255, 255, 0.15)",
+        borderTop: "4px solid var(--primary-background, #6366f1)",
+        borderRadius: "50%",
+        animation: "runpod-spin 1s linear infinite",
+        margin: "0 auto 20px auto"
+    });
+
+    if (!document.getElementById("runpod-spinner-keyframes")) {
+        const style = document.createElement("style");
+        style.id = "runpod-spinner-keyframes";
+        style.textContent = "@keyframes runpod-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }";
+        document.head.appendChild(style);
+    }
+
+    const title = document.createElement("div");
+    title.textContent = "Restarting ComfyUI";
+    Object.assign(title.style, {
+        fontSize: "20px",
+        fontWeight: "600",
+        marginBottom: "12px",
+        color: "var(--primary-background, #818cf8)"
+    });
+
+    const desc = document.createElement("div");
+    desc.textContent = "ComfyUI server is restarting. Reconnecting automatically...";
+    Object.assign(desc.style, {
+        fontSize: "14px",
+        color: "var(--descrip-text, #c4c9d4)",
+        marginBottom: "12px"
+    });
+
+    const statusText = document.createElement("div");
+    statusText.textContent = "Sending restart command...";
+    Object.assign(statusText.style, {
+        fontSize: "13px",
+        color: "#9ca3af",
+        fontStyle: "italic"
+    });
+
+    card.appendChild(spinner);
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(statusText);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    return {
+        card,
+        updateStatus: (text) => { statusText.textContent = text; },
+        remove: () => overlay.remove()
+    };
+}
+
+// Perform ComfyUI server restart
+async function executeRestart() {
+    if (!confirm("Are you sure you want to restart ComfyUI?")) {
+        return;
+    }
+
+    const ui = showRestartingOverlay();
+    
+    // Bypass leave-site prompt so reload happens smoothly
     bypassBeforeUnload = true;
     window.onbeforeunload = null;
-    window.location.href = "https://console.runpod.io/";
+
+    try {
+        await fetch("/runpod/restart", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" }
+        });
+    } catch (e) {
+        // If the server drops connection immediately upon restart, that's expected
+        console.warn("[RunPod Control] Restart request triggered:", e);
+    }
+
+    ui.updateStatus("Shutting down ComfyUI process...");
+    await new Promise(r => setTimeout(r, 2500));
+
+    ui.updateStatus("Waiting for ComfyUI to come back online...");
+
+    const startTime = Date.now();
+    const maxWaitMs = 120000; // 2 minutes
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch("/runpod/status?t=" + Date.now(), { cache: "no-store" });
+            if (res.ok) {
+                clearInterval(interval);
+                ui.updateStatus("ComfyUI is back online! Reloading interface...");
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+            }
+        } catch (e) {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            ui.updateStatus(`Server rebooting (${elapsed}s)...`);
+            if (Date.now() - startTime > maxWaitMs) {
+                clearInterval(interval);
+                ui.updateStatus("Restart took longer than expected. Please reload manually.");
+                const btn = document.createElement("button");
+                btn.textContent = "Reload Page";
+                Object.assign(btn.style, {
+                    marginTop: "16px",
+                    padding: "8px 16px",
+                    borderRadius: "8px",
+                    background: "var(--primary-background, #6366f1)",
+                    color: "#fff",
+                    border: "none",
+                    cursor: "pointer"
+                });
+                btn.onclick = () => window.location.reload();
+                ui.card.appendChild(btn);
+            }
+        }
+    }, 1500);
 }
 
 // Update the Top Action Bar Timer Button display
@@ -775,12 +912,8 @@ function ensureUnifiedDropdown(buttonEl) {
         }
     });
 
-    const restartBtn = createItem("Restart Pod", () => {
-        if (runpodStatus.pod_id) {
-            executeRestart();
-        } else {
-            showToast("Restart Pod", "Pod ID not detected", "warn");
-        }
+    const restartBtn = createItem("Restart ComfyUI", () => {
+        executeRestart();
     });
 
     const toggleTimerBtn = createItem(timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer", async () => {
