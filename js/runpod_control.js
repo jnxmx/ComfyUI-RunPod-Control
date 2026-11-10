@@ -120,6 +120,29 @@ function getMonitorSetting(id, fallback) {
     return fallback;
 }
 
+// Disable the full Crystools monitor bars while our own monitor is enabled
+const CRYSTOOLS_MONITOR_SETTING_IDS = (() => {
+    const ids = ["Crystools.ShowCpu", "Crystools.ShowRam", "Crystools.ShowHdd"];
+    const words = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven"];
+    for (const w of words) {
+        ids.push(`Crystools.ShowGpuUsage${w}`, `Crystools.ShowGpuVram${w}`, `Crystools.ShowGpuTemperature${w}`);
+    }
+    return ids;
+})();
+
+function disableCrystoolsMonitor() {
+    if (getMonitorSetting("runpod.monitor.enabled", true) === false) return;
+    const settingsUi = app?.ui?.settings;
+    if (!settingsUi?.getSettingValue || !settingsUi?.setSettingValue) return;
+    for (const id of CRYSTOOLS_MONITOR_SETTING_IDS) {
+        try {
+            if (settingsUi.getSettingValue(id) === true) {
+                settingsUi.setSettingValue(id, false);
+            }
+        } catch (e) {}
+    }
+}
+
 function isResourceMonitorEnabled() {
     return getMonitorSetting("runpod.monitor.enabled", true) !== false;
 }
@@ -1706,6 +1729,7 @@ app.registerExtension({
             tooltip: "Show compact RunPod-style resource gauges right next to the RunPod button.",
             onChange() {
                 updateButtonUI();
+                disableCrystoolsMonitor();
                 if (isResourceMonitorEnabled()) startResourceMonitor();
                 else stopResourceMonitor();
             }
@@ -1847,6 +1871,8 @@ app.registerExtension({
                 updateButtonUI();
             };
             syncSettings();
+            // Crystools registers its settings asynchronously; retry a few times
+            [1500, 5000, 12000].forEach((ms) => setTimeout(disableCrystoolsMonitor, ms));
 
             // MutationObserver to place buttons dynamically when action bar renders/updates
             const uiObserver = new MutationObserver((mutations) => {
