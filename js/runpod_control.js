@@ -49,13 +49,19 @@ function showToast(summary, detail, severity = "info") {
     }
 }
 
-// Fetch configured duration from settings
+// Fetch configured duration from settings or env
 function getConfiguredMinutes() {
+    if (runpodStatus.timer?.env_duration_minutes) {
+        return runpodStatus.timer.env_duration_minutes;
+    }
     const settingsUi = app?.ui?.settings;
     if (settingsUi?.getSettingValue) {
         let val = settingsUi.getSettingValue("runpod.shutdown_minutes");
         if (typeof val === "string") val = parseInt(val, 10);
         if (typeof val === "number" && !isNaN(val) && val > 0) return val;
+    }
+    if (runpodStatus.timer?.duration_seconds) {
+        return Math.round(runpodStatus.timer.duration_seconds / 60);
     }
     return 30;
 }
@@ -1261,14 +1267,25 @@ app.registerExtension({
 
             // Sync current client settings to backend on startup
             const syncSettings = async () => {
-                const mins = getConfiguredMinutes();
+                const envMins = runpodStatus.timer?.env_duration_minutes;
+                const settingsUi = app?.ui?.settings;
+
+                if (envMins) {
+                    if (settingsUi?.setSettingValue) {
+                        try {
+                            settingsUi.setSettingValue("runpod.shutdown_minutes", envMins);
+                        } catch (e) {}
+                    }
+                } else {
+                    const mins = getConfiguredMinutes();
+                    await fetch("/runpod/timer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "set_duration", duration_seconds: mins * 60 })
+                    });
+                }
                 const act = getShutdownAction();
                 const timerPref = getShutdownTimerEnabled();
-                await fetch("/runpod/timer", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "set_duration", duration_seconds: mins * 60 })
-                });
                 await fetch("/runpod/timer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },

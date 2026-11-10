@@ -27,16 +27,23 @@ def is_timer_disabled_by_env() -> bool:
             return True
     return False
 
+def get_env_shutdown_minutes():
+    mins_env = os.environ.get("RUNPOD_SHUTDOWN_MINUTES") or os.environ.get("SHUTDOWN_MINUTES")
+    if mins_env:
+        try:
+            return max(int(mins_env), 1)
+        except Exception:
+            pass
+    return None
+
 class RunPodTimer:
     def __init__(self):
         self.enabled = not is_timer_disabled_by_env()
-        self.duration_seconds = 1800  # Default 30 min
-        try:
-            mins_env = os.environ.get("RUNPOD_SHUTDOWN_MINUTES") or os.environ.get("SHUTDOWN_MINUTES")
-            if mins_env:
-                self.duration_seconds = max(int(mins_env) * 60, 60)
-        except Exception:
-            pass
+        env_mins = get_env_shutdown_minutes()
+        if env_mins is not None:
+            self.duration_seconds = env_mins * 60
+        else:
+            self.duration_seconds = 1800  # Default 30 min
         self.seconds_left = self.duration_seconds
         self.job_active = False
         self.shutdown_action = "stop_and_remove"
@@ -309,7 +316,8 @@ async def get_runpod_status(request):
             "duration_seconds": runpod_timer.duration_seconds,
             "job_active": runpod_timer.job_active,
             "shutdown_action": runpod_timer.shutdown_action,
-            "env_disabled": is_timer_disabled_by_env()
+            "env_disabled": is_timer_disabled_by_env(),
+            "env_duration_minutes": get_env_shutdown_minutes()
         }
     })
 
