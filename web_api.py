@@ -537,6 +537,7 @@ def _patch_comfy_ram_detection_for_cgroups():
                 return vm
 
         comfy_mm.psutil.virtual_memory = _virtual_memory_cgroup_aware
+        comfy_mm.total_ram = min(host_total, limit) / (1024 * 1024)
         _cgroup_ram_patch_applied = True
         _cgroup_ram_patch_enabled = True
 
