@@ -710,6 +710,144 @@ def _get_gpu_metrics():
         pass
     return gpus
 
+_CLUSTER_POOL_THRESHOLD_BYTES = 16 * (1024 ** 4)  # 16 TiB
+_du_cache = {}
+_du_in_flight = set()
+_pod_vol_bytes_cache = None
+_pod_vol_probe_started = False
+
+def _get_xattr_int(path, attr):
+    if not hasattr(os, "getxattr"):
+        return None
+    try:
+        raw = os.getxattr(path, attr)
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="ignore")
+        val = int(str(raw).strip())
+        return val if val > 0 else None
+    except Exception:
+        return None
+
+def _probe_pod_volume_bytes_once():
+    global _pod_vol_bytes_cache, _pod_vol_probe_started
+    if _pod_vol_probe_started:
+        return
+    _pod_vol_probe_started = True
+    pod_id = os.environ.get("RUNPOD_POD_ID")
+    runpodctl_path = shutil.which("runpodctl")
+    if not pod_id or not runpodctl_path:
+        return
+    import threading
+    def _worker():
+        global _pod_vol_bytes_cache
+        try:
+            import subprocess, re
+            res = subprocess.run(
+                [runpodctl_path, "get", "pod", pod_id, "--allfields"],
+                capture_output=True, text=True, timeout=4
+            )
+            out = (res.stdout or "").strip()
+            if not out:
+                return
+            lines = [ln for ln in out.splitlines() if ln.strip()]
+            if len(lines) >= 2:
+                headers = re.split(r"\t+|\s{2,}", lines[0].strip())
+                values = re.split(r"\t+|\s{2,}", lines[1].strip())
+                for h, v in zip(headers, values):
+                    hl = h.lower()
+                    if "volume" in hl and "container" not in hl:
+                        m = re.search(r"(\d+(?:\.\d+)?)", v)
+                        if m:
+                            gb = float(m.group(1))
+                            if gb > 0:
+                                _pod_vol_bytes_cache = int(gb * (1024 ** 3))
+                                return
+        except Exception:
+            pass
+    threading.Thread(target=_worker, daemon=True).start()
+
+def _get_runpod_volume_bytes():
+    for var in ("RUNPOD_VOLUME_SIZE", "VOLUME_SIZE_GB", "RUNPOD_VOLUME_IN_GB"):
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            try:
+                gb = float(raw)
+                if gb > 0:
+                    return int(gb * (1024 ** 3))
+            except Exception:
+                pass
+    if _pod_vol_bytes_cache is not None:
+        return _pod_vol_bytes_cache
+    _probe_pod_volume_bytes_once()
+    return _pod_vol_bytes_cache
+
+def _get_du_used_bytes_cached(path):
+    import time, threading, subprocess
+    now = time.monotonic()
+    entry = _du_cache.get(path)
+    if entry and (now - entry[0]) < 30.0:
+        return entry[1]
+    if path not in _du_in_flight:
+        _du_in_flight.add(path)
+        def _worker():
+            try:
+                res = subprocess.run(["du", "-sb", path], capture_output=True, text=True, timeout=15)
+                if res.returncode == 0 and res.stdout:
+                    val = int(res.stdout.strip().split()[0])
+                    _du_cache[path] = (time.monotonic(), val)
+                    return
+                res_k = subprocess.run(["du", "-sk", path], capture_output=True, text=True, timeout=15)
+                if res_k.returncode == 0 and res_k.stdout:
+                    val = int(res_k.stdout.strip().split()[0]) * 1024
+                    _du_cache[path] = (time.monotonic(), val)
+            except Exception:
+                pass
+            finally:
+                _du_in_flight.discard(path)
+        threading.Thread(target=_worker, daemon=True).start()
+    return entry[1] if entry else -1
+
+def _get_accurate_disk_usage(hdd_path, ps):
+    stat_total = -1
+    stat_used = -1
+    try:
+        du = ps.disk_usage(hdd_path)
+        stat_total = int(du.total)
+        stat_used = int(du.used)
+    except Exception:
+        pass
+
+    quota_total = _get_xattr_int(hdd_path, "ceph.quota.max_bytes")
+    env_cli_total = _get_runpod_volume_bytes() if hdd_path == "/workspace" else None
+
+    if quota_total:
+        hdd_total = quota_total
+    elif env_cli_total:
+        hdd_total = env_cli_total
+    elif 0 < stat_total <= _CLUSTER_POOL_THRESHOLD_BYTES:
+        hdd_total = stat_total
+    else:
+        hdd_total = -1
+
+    is_cluster_pool = (stat_total > _CLUSTER_POOL_THRESHOLD_BYTES) or (
+        quota_total is not None and stat_total > 0 and quota_total < stat_total
+    ) or (
+        env_cli_total is not None and stat_total > 0 and env_cli_total < stat_total
+    )
+
+    if is_cluster_pool:
+        rbytes = _get_xattr_int(hdd_path, "ceph.dir.rbytes")
+        hdd_used = rbytes if rbytes is not None else _get_du_used_bytes_cached(hdd_path)
+    else:
+        hdd_used = stat_used
+
+    if hdd_total > 0 and hdd_used >= 0:
+        hdd_percent = round(min((hdd_used / hdd_total) * 100.0, 100.0), 1)
+    else:
+        hdd_percent = -1
+
+    return hdd_total, hdd_used, hdd_percent
+
 async def get_runpod_monitor(request):
     hdd_path = request.query.get("hdd_path", "/workspace").strip() or "/workspace"
     if hdd_path not in ("/", "/workspace"):
@@ -748,13 +886,7 @@ async def get_runpod_monitor(request):
         except Exception:
             pass
 
-        try:
-            du = ps.disk_usage(hdd_path)
-            hdd_total = int(du.total)
-            hdd_used = int(du.used)
-            hdd_percent = round(float(du.percent), 1)
-        except Exception:
-            pass
+        hdd_total, hdd_used, hdd_percent = _get_accurate_disk_usage(hdd_path, ps)
 
     return web.json_response({
         "cpu_utilization": cpu_percent,

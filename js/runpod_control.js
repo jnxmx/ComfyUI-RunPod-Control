@@ -238,9 +238,12 @@ function renderResourceMonitor(data) {
         const val = data?.hdd_used_percent;
         const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
         const pathLabel = data?.hdd_path || getMonitorSetting("runpod.monitor.hdd_path", "/workspace");
-        const tip = data?.hdd_total > 0
-            ? `Disk (${pathLabel}): ${formatBytesGiB(data.hdd_used)} / ${formatBytesGiB(data.hdd_total)} (${txt})`
-            : `Disk (${pathLabel}): ${txt}`;
+        let tip = `Disk (${pathLabel}): ${txt}`;
+        if (data?.hdd_total > 0 && data?.hdd_used >= 0) {
+            tip = `Disk (${pathLabel}): ${formatBytesGiB(data.hdd_used)} / ${formatBytesGiB(data.hdd_total)} (${txt})`;
+        } else if (data?.hdd_used >= 0) {
+            tip = `Disk (${pathLabel}): ${formatBytesGiB(data.hdd_used)} used`;
+        }
         gauges.push(buildGaugeSvg("HDD", val, txt, tip));
     }
 
