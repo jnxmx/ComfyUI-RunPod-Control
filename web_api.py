@@ -509,6 +509,21 @@ def _read_int_file(path):
     except Exception:
         return None
 
+def _read_stat_file_kv(path):
+    result = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    try:
+                        result[parts[0]] = int(parts[1])
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return result
+
 def _read_cgroup_memory_limit_and_usage():
     # cgroup v2
     v2_limit = _read_int_file("/sys/fs/cgroup/memory.max")
@@ -516,11 +531,17 @@ def _read_cgroup_memory_limit_and_usage():
     if v2_limit is not None or v2_usage is not None:
         limit = v2_limit
         usage = v2_usage if v2_usage is not None else 0
+        stat = _read_stat_file_kv("/sys/fs/cgroup/memory.stat")
+        reclaimable = stat.get("inactive_file", 0)
+        usage = max(usage - reclaimable, 0)
     else:
         # cgroup v1
         limit = _read_int_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
         usage = _read_int_file("/sys/fs/cgroup/memory/memory.usage_in_bytes")
         usage = usage if usage is not None else 0
+        stat = _read_stat_file_kv("/sys/fs/cgroup/memory/memory.stat")
+        reclaimable = stat.get("total_inactive_file", stat.get("inactive_file", 0))
+        usage = max(usage - reclaimable, 0)
 
     # Very large limits in cgroup v1 commonly mean "unlimited".
     if limit is not None and limit >= (1 << 60):
@@ -774,7 +795,7 @@ def _probe_pod_volume_bytes_once():
                 nv = pod_data.get("networkVolume") or {}
                 gb = nv.get("size") or pod_data.get("volumeInGb") or 0
                 if gb and float(gb) > 0:
-                    _pod_vol_bytes_cache = int(float(gb) * (1024 ** 3))
+                    _pod_vol_bytes_cache = int(float(gb) * (1000 ** 3))
                     return
             except Exception:
                 pass
@@ -813,7 +834,7 @@ def _probe_pod_volume_bytes_once():
                     if m:
                         gb = float(m.group(1))
                         if gb > 0:
-                            _pod_vol_bytes_cache = int(gb * (1024 ** 3))
+                            _pod_vol_bytes_cache = int(gb * (1000 ** 3))
                             return
         except Exception:
             pass
@@ -848,7 +869,7 @@ def _get_runpod_volume_bytes():
             try:
                 gb = float(raw)
                 if gb > 0:
-                    return int(gb * (1024 ** 3))
+                    return int(gb * (1000 ** 3))
             except Exception:
                 pass
     if _pod_vol_bytes_cache is not None:
@@ -866,7 +887,7 @@ def _get_du_used_bytes_cached(path):
         _du_in_flight.add(path)
         def _worker():
             try:
-                res = subprocess.run(["du", "-sb", path], capture_output=True, text=True, timeout=15)
+                res = subprocess.run(["du", "-s", "-B1", path], capture_output=True, text=True, timeout=15)
                 if res.returncode == 0 and res.stdout:
                     val = int(res.stdout.strip().split()[0])
                     _du_cache[path] = (time.monotonic(), val)

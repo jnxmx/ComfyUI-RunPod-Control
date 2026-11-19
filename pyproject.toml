@@ -1,7 +1,7 @@
 [project]
 name = "ComfyUI-RunPod-Control"
 description = "Auto-shutdown timer, FileBrowser launcher, and Pod Info utilities for ComfyUI running on RunPod."
-version = "1.0.37"
+version = "1.0.38"
 dependencies = []
 
 [project.urls]
