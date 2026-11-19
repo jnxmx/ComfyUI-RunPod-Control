@@ -248,7 +248,49 @@ function renderResourceMonitor(data) {
     container.innerHTML = gauges.join("");
 }
 
+const HF_DOWNLOADER_BUTTON_SELECTOR = 'button[aria-label="Hugging Face Downloader"]';
+
+function findActionBarSlot(el) {
+    let curr = el;
+    while (curr && curr.parentElement && curr.parentElement !== document.body) {
+        const parent = curr.parentElement;
+        const display = window.getComputedStyle(parent).display || "";
+        if (display.includes("flex") && parent.children.length > 1) {
+            return { flexParent: parent, slot: curr };
+        }
+        curr = parent;
+    }
+    if (el?.parentElement) {
+        return { flexParent: el.parentElement, slot: el };
+    }
+    return null;
+}
+
+function syncTopBarOrdering(runpodBtn) {
+    if (!runpodBtn) return;
+    const rpInfo = findActionBarSlot(runpodBtn);
+    if (!rpInfo) return;
+    const { flexParent, slot: rpSlot } = rpInfo;
+
+    if (rpSlot.style.order !== "9998") {
+        rpSlot.style.order = "9998";
+    }
+
+    const hfBtn = document.querySelector(HF_DOWNLOADER_BUTTON_SELECTOR);
+    if (hfBtn) {
+        let hfSlot = hfBtn;
+        while (hfSlot && hfSlot.parentElement && hfSlot.parentElement !== flexParent) {
+            hfSlot = hfSlot.parentElement;
+        }
+        if (hfSlot && hfSlot.parentElement === flexParent && hfSlot.style.order !== "9997") {
+            hfSlot.style.order = "9997";
+        }
+    }
+}
+
 function updateResourceMonitorPlacement(btn) {
+    syncTopBarOrdering(btn);
+
     let container = document.getElementById(RESOURCE_MONITOR_ID);
     if (!isResourceMonitorEnabled()) {
         if (container) container.remove();
@@ -257,6 +299,8 @@ function updateResourceMonitorPlacement(btn) {
     }
 
     if (!btn) return;
+    const rpInfo = findActionBarSlot(btn);
+    if (!rpInfo) return;
 
     if (!container) {
         container = document.createElement("div");
@@ -266,17 +310,21 @@ function updateResourceMonitorPlacement(btn) {
             alignItems: "center",
             height: "32px",
             gap: "6px",
-            marginLeft: "6px",
+            marginLeft: "4px",
             padding: "0",
             border: "none",
             background: "transparent",
             flexShrink: "0",
-            verticalAlign: "middle"
+            verticalAlign: "middle",
+            order: "9999"
         });
     }
 
-    if (btn.nextElementSibling !== container) {
-        btn.insertAdjacentElement("afterend", container);
+    if (container.parentElement !== rpInfo.flexParent) {
+        rpInfo.flexParent.appendChild(container);
+    }
+    if (container.style.order !== "9999") {
+        container.style.order = "9999";
     }
 
     if (lastMonitorData) {
