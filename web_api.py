@@ -728,43 +728,118 @@ def _get_xattr_int(path, attr):
     except Exception:
         return None
 
+def _read_runpod_api_key():
+    key = os.environ.get("RUNPOD_API_KEY", "").strip()
+    if key:
+        return key
+    try:
+        cfg_path = os.path.expanduser("~/.runpod/config.toml")
+        if os.path.exists(cfg_path):
+            import re
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            m = re.search(r'^\s*apikey\s*=\s*["\']([^"\']+)["\']', content, re.IGNORECASE | re.MULTILINE)
+            if m:
+                return m.group(1).strip()
+    except Exception:
+        pass
+    return None
+
 def _probe_pod_volume_bytes_once():
     global _pod_vol_bytes_cache, _pod_vol_probe_started
     if _pod_vol_probe_started:
         return
     _pod_vol_probe_started = True
     pod_id = os.environ.get("RUNPOD_POD_ID")
-    runpodctl_path = shutil.which("runpodctl")
-    if not pod_id or not runpodctl_path:
+    if not pod_id:
         return
     import threading
     def _worker():
         global _pod_vol_bytes_cache
+        # 1. Try RunPod GraphQL API (covers both Pod Volume and Network Volume)
+        api_key = _read_runpod_api_key()
+        if api_key:
+            try:
+                import urllib.request
+                query = f'query {{ pod(input: {{podId: "{pod_id}"}}) {{ volumeInGb networkVolume {{ size }} }} }}'
+                req = urllib.request.Request(
+                    f"https://api.runpod.io/graphql?api_key={api_key}",
+                    data=json.dumps({"query": query}).encode("utf-8"),
+                    headers={"Content-Type": "application/json", "User-Agent": "ComfyUI-RunPod-Control"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+                pod_data = (payload.get("data") or {}).get("pod") or {}
+                nv = pod_data.get("networkVolume") or {}
+                gb = nv.get("size") or pod_data.get("volumeInGb") or 0
+                if gb and float(gb) > 0:
+                    _pod_vol_bytes_cache = int(float(gb) * (1024 ** 3))
+                    return
+            except Exception:
+                pass
+
+        # 2. Fallback: runpodctl get pod <pod_id> --allfields (tablewriter format)
+        runpodctl_path = shutil.which("runpodctl")
+        if not runpodctl_path:
+            return
         try:
             import subprocess, re
             res = subprocess.run(
                 [runpodctl_path, "get", "pod", pod_id, "--allfields"],
-                capture_output=True, text=True, timeout=4
+                capture_output=True, text=True, timeout=5
             )
             out = (res.stdout or "").strip()
             if not out:
                 return
-            lines = [ln for ln in out.splitlines() if ln.strip()]
-            if len(lines) >= 2:
-                headers = re.split(r"\t+|\s{2,}", lines[0].strip())
-                values = re.split(r"\t+|\s{2,}", lines[1].strip())
-                for h, v in zip(headers, values):
-                    hl = h.lower()
-                    if "volume" in hl and "container" not in hl:
-                        m = re.search(r"(\d+(?:\.\d+)?)", v)
-                        if m:
-                            gb = float(m.group(1))
-                            if gb > 0:
-                                _pod_vol_bytes_cache = int(gb * (1024 ** 3))
-                                return
+            vol_idx = None
+            for raw_ln in out.splitlines():
+                ln = raw_ln.strip()
+                if not ln or ln.startswith("+") or ln.startswith("-"):
+                    continue
+                if "|" in ln:
+                    cols = [c.strip() for c in ln.strip("|").split("|")]
+                else:
+                    cols = re.split(r"\t+|\s{2,}", ln)
+                if vol_idx is None:
+                    for idx, c in enumerate(cols):
+                        cl = c.lower()
+                        if "volume" in cl and "container" not in cl:
+                            vol_idx = idx
+                            break
+                    continue
+                if any(pod_id.lower() == c.lower() for c in cols) and vol_idx is not None and vol_idx < len(cols):
+                    m = re.search(r"(\d+(?:\.\d+)?)", cols[vol_idx])
+                    if m:
+                        gb = float(m.group(1))
+                        if gb > 0:
+                            _pod_vol_bytes_cache = int(gb * (1024 ** 3))
+                            return
         except Exception:
             pass
     threading.Thread(target=_worker, daemon=True).start()
+
+def _get_mfs_quota(path):
+    mfs = shutil.which("mfsgetquota")
+    if not mfs:
+        return None, None
+    try:
+        import subprocess, re
+        res = subprocess.run([mfs, path], capture_output=True, text=True, timeout=2)
+        if res.returncode != 0 or not res.stdout:
+            return None, None
+        # Look for "size" or "length" line with soft/hard limit and current usage in bytes or GiB
+        for ln in res.stdout.splitlines():
+            if "size" in ln.lower() or "length" in ln.lower():
+                nums = re.findall(r"\b(\d+)\b", ln)
+                if len(nums) >= 2:
+                    used_b = int(nums[0])
+                    limit_b = int(nums[1]) if int(nums[1]) > 0 else (int(nums[2]) if len(nums) > 2 else 0)
+                    if limit_b > 0:
+                        return limit_b, used_b
+    except Exception:
+        pass
+    return None, None
 
 def _get_runpod_volume_bytes():
     for var in ("RUNPOD_VOLUME_SIZE", "VOLUME_SIZE_GB", "RUNPOD_VOLUME_IN_GB"):
@@ -818,10 +893,13 @@ def _get_accurate_disk_usage(hdd_path, ps):
         pass
 
     quota_total = _get_xattr_int(hdd_path, "ceph.quota.max_bytes")
+    mfs_total, mfs_used = _get_mfs_quota(hdd_path) if (not quota_total and stat_total > _CLUSTER_POOL_THRESHOLD_BYTES) else (None, None)
     env_cli_total = _get_runpod_volume_bytes() if hdd_path == "/workspace" else None
 
     if quota_total:
         hdd_total = quota_total
+    elif mfs_total:
+        hdd_total = mfs_total
     elif env_cli_total:
         hdd_total = env_cli_total
     elif 0 < stat_total <= _CLUSTER_POOL_THRESHOLD_BYTES:
@@ -837,7 +915,12 @@ def _get_accurate_disk_usage(hdd_path, ps):
 
     if is_cluster_pool:
         rbytes = _get_xattr_int(hdd_path, "ceph.dir.rbytes")
-        hdd_used = rbytes if rbytes is not None else _get_du_used_bytes_cached(hdd_path)
+        if rbytes is not None:
+            hdd_used = rbytes
+        elif mfs_used is not None:
+            hdd_used = mfs_used
+        else:
+            hdd_used = _get_du_used_bytes_cached(hdd_path)
     else:
         hdd_used = stat_used
 
@@ -910,6 +993,10 @@ def setup(app):
     # Apply cgroup-aware RAM patch and WebSocket keepalive task
     _patch_comfy_ram_detection_for_cgroups()
     _ensure_ws_keepalive_task()
+
+    # Pre-warm volume quota/usage probe for /workspace
+    if os.path.exists("/workspace"):
+        _probe_pod_volume_bytes_once()
     
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
     _safe_add_route(app, "GET", "/runpod/monitor", get_runpod_monitor)
