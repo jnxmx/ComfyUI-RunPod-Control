@@ -877,8 +877,9 @@ function updateButtonUI() {
 
     const isActive = timerState.enabled && !timerState.jobActive;
     const isUrgent = isActive && timerState.secondsLeft < 100;
+    const isLow = isActive && timerState.secondsLeft < 600;
     const labelHtml = isActive
-        ? `<span class="inline-flex items-center gap-1"><span class="text-xs font-medium">RunPod</span><span class="text-2xs ${isUrgent ? "text-destructive" : "text-muted-foreground"} tabular-nums">${getButtonText()}</span></span>`
+        ? `<span class="inline-flex items-center gap-1"><span class="text-xs font-medium">RunPod</span><span class="text-2xs ${isLow ? "text-destructive" : "text-muted-foreground"} tabular-nums">${getButtonText()}</span></span>`
         : `<span class="text-xs font-medium">RunPod</span>`;
     const chevronHtml = `<i class="runpod-control-chevron icon-[lucide--chevron-down] size-3 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" aria-hidden="true"></i>`;
     const htmlContent = `${labelHtml}${chevronHtml}`;
