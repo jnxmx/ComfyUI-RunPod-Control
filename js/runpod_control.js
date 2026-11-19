@@ -26,6 +26,84 @@ let countdownOverlay = null;
 let decorateQueued = false;
 let bypassBeforeUnload = false;
 
+const RUNPOD_MENU_STYLE_ID = "runpod-control-native-menu-style";
+const RUNPOD_BUTTON_SELECTOR = 'button[aria-label="RunPod Control"]';
+const ACTIONBAR_STRIP_CLASSES = [
+    "bg-transparent",
+    "text-muted-foreground",
+    "h-6",
+    "h-7",
+    "rounded-sm",
+    "rounded-full",
+    "px-2",
+    "py-1"
+];
+const NATIVE_TRIGGER_CLASSES = [
+    "runpod-control-btn",
+    "relative",
+    "inline-flex",
+    "cursor-pointer",
+    "touch-manipulation",
+    "appearance-none",
+    "items-center",
+    "justify-center",
+    "border-none",
+    "font-inter",
+    "text-xs",
+    "font-medium",
+    "whitespace-nowrap",
+    "transition-colors",
+    "focus-visible:ring-1",
+    "focus-visible:ring-ring",
+    "focus-visible:outline-none",
+    "disabled:pointer-events-none",
+    "disabled:opacity-50",
+    "bg-secondary",
+    "text-foreground",
+    "hover:bg-accent",
+    "group",
+    "h-8",
+    "gap-1.5",
+    "rounded-lg",
+    "pr-1.5",
+    "pl-2.5",
+    "data-[state=open]:bg-accent"
+];
+const NATIVE_MENU_CONTAINER_CLASS =
+    "z-3000 min-w-52 overflow-y-auto rounded-lg border border-solid border-border bg-background p-1 text-foreground shadow-lg outline-none";
+const NATIVE_MENU_ITEM_CLASS =
+    "group flex min-h-8 w-full cursor-pointer appearance-none items-center gap-2 rounded-sm border-0 bg-transparent px-2 py-1 text-left font-inter text-xs text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent disabled:pointer-events-none disabled:opacity-50";
+
+function ensureRunPodButtonStyles() {
+    if (document.getElementById(RUNPOD_MENU_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = RUNPOD_MENU_STYLE_ID;
+    style.textContent = `
+        ${RUNPOD_BUTTON_SELECTOR}[data-state="open"] .runpod-control-chevron {
+            transform: none;
+            rotate: 180deg;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function syncRunPodButtonOpenState(isOpenOverride = null) {
+    const isOpen =
+        isOpenOverride !== null
+            ? Boolean(isOpenOverride)
+            : Boolean(unifiedDropdownMenu && unifiedDropdownMenu.style.display === "flex");
+    const stateVal = isOpen ? "open" : "closed";
+    const expandedVal = String(isOpen);
+    document.querySelectorAll(RUNPOD_BUTTON_SELECTOR).forEach((btn) => {
+        if (btn.getAttribute("data-state") !== stateVal) {
+            btn.setAttribute("data-state", stateVal);
+        }
+        if (btn.getAttribute("aria-expanded") !== expandedVal) {
+            btn.setAttribute("aria-expanded", expandedVal);
+        }
+    });
+}
+
 // Intercept and prevent "Confirm on close/leave" prompts if redirecting intentionally
 window.addEventListener("beforeunload", (e) => {
     if (bypassBeforeUnload) {
@@ -490,51 +568,67 @@ function getButtonText() {
     return timerText;
 }
 
+function applyNativeRunPodTriggerStyling(btn) {
+    for (const cls of ACTIONBAR_STRIP_CLASSES) {
+        if (btn.classList.contains(cls)) {
+            btn.classList.remove(cls);
+        }
+    }
+    for (const cls of NATIVE_TRIGGER_CLASSES) {
+        if (!btn.classList.contains(cls)) {
+            btn.classList.add(cls);
+        }
+    }
+    if (btn.getAttribute("data-variant") !== "secondary") {
+        btn.setAttribute("data-variant", "secondary");
+    }
+    if (btn.getAttribute("aria-haspopup") !== "menu") {
+        btn.setAttribute("aria-haspopup", "menu");
+    }
+    if (btn.dataset.rpNativeStyled !== "1") {
+        btn.style.padding = "";
+        btn.style.minWidth = "";
+        btn.style.display = "";
+        btn.style.alignItems = "";
+        btn.style.justifyContent = "";
+        btn.style.fontSize = "";
+        btn.style.fontWeight = "";
+        btn.style.fontFamily = "";
+        btn.style.whiteSpace = "";
+        // Disable original tooltip since our button renders an inline timer readout
+        btn.title = "";
+        btn.dataset.rpNativeStyled = "1";
+    }
+}
+
 function updateButtonUI() {
-    const btn = document.querySelector('button[aria-label="RunPod Control"]');
+    ensureRunPodButtonStyles();
+    const btn = document.querySelector(RUNPOD_BUTTON_SELECTOR);
     if (!btn) return;
 
-    if (!btn.classList.contains("runpod-control-btn")) {
-        btn.classList.add("runpod-control-btn");
-        Object.assign(btn.style, {
-            padding: "4px 8px",
-            minWidth: "max-content",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "12px",
-            fontWeight: "500",
-            fontFamily: "monospace",
-            whiteSpace: "pre"
-        });
-        
-        // Disable original tooltip since our button is custom
-        btn.title = "";
-    }
+    applyNativeRunPodTriggerStyling(btn);
 
     const isActive = timerState.enabled && !timerState.jobActive;
-    let htmlContent;
-    if (isActive) {
-        htmlContent = `RunPod<span class="pi pi-power-off" style="margin-left: -2px; margin-right: -2px; font-size: 12px; display: inline-block; vertical-align: middle;"></span>${getButtonText()}`;
-    } else {
-        htmlContent = `RunPod`;
-    }
+    const isUrgent = isActive && timerState.secondsLeft < 100;
+    const labelHtml = isActive
+        ? `<span class="inline-flex items-center gap-1"><span class="text-xs font-medium">RunPod</span><span class="text-2xs ${isUrgent ? "text-destructive" : "text-muted-foreground"} tabular-nums">${getButtonText()}</span></span>`
+        : `<span class="text-xs font-medium">RunPod</span>`;
+    const chevronHtml = `<i class="runpod-control-chevron icon-[lucide--chevron-down] size-3 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180" aria-hidden="true"></i>`;
+    const htmlContent = `${labelHtml}${chevronHtml}`;
 
     if (btn.innerHTML !== htmlContent) {
         btn.innerHTML = htmlContent;
     }
 
-    // Urgent state: red border & text if timer is active and < 100s left
-    const isUrgent = isActive && timerState.secondsLeft < 100;
+    // Urgent state: red ring & text if timer is active and < 100s left
     if (isUrgent) {
-        btn.style.borderColor = "#ff4b4b";
         btn.style.color = "#ff4b4b";
-        btn.style.boxShadow = "0 0 4px rgba(255, 75, 75, 0.4)";
+        btn.style.boxShadow = "inset 0 0 0 1px rgba(255, 75, 75, 0.85)";
     } else {
-        btn.style.borderColor = "";
         btn.style.color = "";
         btn.style.boxShadow = "";
     }
+    syncRunPodButtonOpenState();
 }
 
 // Start, Pause, Reset Timer logic
@@ -614,7 +708,11 @@ function setupJobDetection() {
 
 // Dropdown Menus: Create & Hide
 function hideAllDropdowns() {
-    if (unifiedDropdownMenu) unifiedDropdownMenu.style.display = "none";
+    if (unifiedDropdownMenu) {
+        unifiedDropdownMenu.style.display = "none";
+        unifiedDropdownMenu.setAttribute("data-state", "closed");
+    }
+    syncRunPodButtonOpenState(false);
 }
 
 // Kill Pod custom dialog (extends ComfyDialog if available)
@@ -852,45 +950,55 @@ function ensureUnifiedDropdown(buttonEl) {
 
     const menu = document.createElement("div");
     menu.id = "runpod-unified-dropdown";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("data-state", "closed");
+    menu.className = NATIVE_MENU_CONTAINER_CLASS;
     Object.assign(menu.style, {
-        position: "absolute",
-        background: "var(--p-menu-background, #18181b)",
-        border: "1px solid var(--p-menu-border-color, #27272a)",
-        borderRadius: "8px",
-        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1), 0 10px 15px -3px rgb(0 0 0 / 0.1)",
-        padding: "4px",
+        position: "fixed",
         display: "none",
         flexDirection: "column",
-        zIndex: "10001",
-        fontFamily: "inherit",
-        minWidth: "200px"
+        zIndex: "3000",
+        maxHeight: "calc(100vh - 16px)",
+        maxWidth: "calc(100vw - 16px)"
     });
 
-    const createItem = (text, onClick) => {
+    const createSeparator = () => {
+        const sep = document.createElement("div");
+        sep.setAttribute("role", "separator");
+        sep.className = "my-1 h-px bg-border/50";
+        return sep;
+    };
+
+    const createItem = (text, onClick, options = {}) => {
+        const {
+            iconClass = "",
+            trailingIconClass = "",
+            destructive = false
+        } = options;
         const item = document.createElement("button");
         item.type = "button";
-        item.textContent = text;
-        Object.assign(item.style, {
-            border: "none",
-            borderRadius: "6px",
-            background: "transparent",
-            color: "var(--p-menu-item-color, var(--input-text, #f4f4f5))",
-            padding: "8px 12px",
-            textAlign: "left",
-            cursor: "pointer",
-            width: "100%",
-            fontSize: "13px",
-            fontFamily: "inherit",
-            transition: "background 0.1s ease, color 0.1s ease"
-        });
-        item.addEventListener("mouseenter", () => {
-            item.style.background = "var(--p-button-primary-background, var(--comfy-menu-primary-bg, #3b82f6))";
-            item.style.color = "var(--p-button-primary-color, #ffffff)";
-        });
-        item.addEventListener("mouseleave", () => {
-            item.style.background = "transparent";
-            item.style.color = "var(--p-menu-item-color, var(--input-text, #f4f4f5))";
-        });
+        item.setAttribute("role", "menuitem");
+        item.className = NATIVE_MENU_ITEM_CLASS;
+
+        if (iconClass) {
+            const icon = document.createElement("i");
+            icon.className = `${iconClass} size-3.5 shrink-0 ${destructive ? "text-destructive" : "text-muted-foreground"}`;
+            icon.setAttribute("aria-hidden", "true");
+            item.appendChild(icon);
+        }
+
+        const labelSpan = document.createElement("span");
+        labelSpan.className = `runpod-menu-item-label min-w-0 flex-1 truncate${destructive ? " text-destructive" : ""}`;
+        labelSpan.textContent = text;
+        item.appendChild(labelSpan);
+
+        if (trailingIconClass) {
+            const trailingIcon = document.createElement("i");
+            trailingIcon.className = `${trailingIconClass} ml-auto size-3.5 shrink-0 text-muted-foreground`;
+            trailingIcon.setAttribute("aria-hidden", "true");
+            item.appendChild(trailingIcon);
+        }
+
         item.addEventListener("click", (e) => {
             e.stopPropagation();
             hideAllDropdowns();
@@ -899,73 +1007,114 @@ function ensureUnifiedDropdown(buttonEl) {
         return item;
     };
 
-    const outputsBtn = createItem("Outputs", () => {
-        if (runpodStatus.output_url) window.open(runpodStatus.output_url, "_blank");
-        else showToast("Outputs", "Output URL not available", "warn");
-    });
-
-    const fbBtn = createItem("FileBrowser", () => {
-        if (runpodStatus.filebrowser_url) window.open(runpodStatus.filebrowser_url, "_blank");
-        else showToast("FileBrowser", "FileBrowser not active", "warn");
-    });
-
-    const infoBtn = createItem("Pod Info", () => {
-        if (runpodStatus.pod_id) {
-            const url = `https://console.runpod.io/pods?id=${runpodStatus.pod_id}&inspectorTab=telemetry`;
-            window.open(url, "_blank");
-        } else {
-            showToast("Pod Info", "Pod ID not detected", "warn");
+    const outputsBtn = createItem(
+        "Outputs",
+        () => {
+            if (runpodStatus.output_url) window.open(runpodStatus.output_url, "_blank");
+            else showToast("Outputs", "Output URL not available", "warn");
+        },
+        {
+            iconClass: "icon-[lucide--folder-open]",
+            trailingIconClass: "icon-[lucide--arrow-up-right]"
         }
-    });
+    );
 
-    const restartBtn = createItem("Restart ComfyUI", () => {
-        executeRestart();
-    });
+    const fbBtn = createItem(
+        "FileBrowser",
+        () => {
+            if (runpodStatus.filebrowser_url) window.open(runpodStatus.filebrowser_url, "_blank");
+            else showToast("FileBrowser", "FileBrowser not active", "warn");
+        },
+        {
+            iconClass: "icon-[lucide--folder]",
+            trailingIconClass: "icon-[lucide--arrow-up-right]"
+        }
+    );
 
-    const toggleTimerBtn = createItem(timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer", async () => {
-        const nextEnabled = !timerState.enabled;
-        try {
-            const response = await fetch("/runpod/timer", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "toggle", enabled: nextEnabled })
-            });
-            if (response.ok) {
-                const data = await response.json();
-                if (data.timer) {
-                    timerState.enabled = data.timer.enabled;
-                    timerState.secondsLeft = data.timer.seconds_left;
-                    timerState.jobActive = data.timer.job_active;
-                    timerState.running = timerState.enabled && !timerState.jobActive;
-                    const settingsUi = app?.ui?.settings;
-                    if (settingsUi?.setSettingValue) {
-                        try {
-                            settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
-                        } catch (e) {}
+    const infoBtn = createItem(
+        "Pod Info",
+        () => {
+            if (runpodStatus.pod_id) {
+                const url = `https://console.runpod.io/pods?id=${runpodStatus.pod_id}&inspectorTab=telemetry`;
+                window.open(url, "_blank");
+            } else {
+                showToast("Pod Info", "Pod ID not detected", "warn");
+            }
+        },
+        {
+            iconClass: "icon-[lucide--server]",
+            trailingIconClass: "icon-[lucide--arrow-up-right]"
+        }
+    );
+
+    const restartBtn = createItem(
+        "Restart ComfyUI",
+        () => {
+            executeRestart();
+        },
+        { iconClass: "icon-[lucide--refresh-cw]" }
+    );
+
+    const toggleTimerBtn = createItem(
+        timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer",
+        async () => {
+            const nextEnabled = !timerState.enabled;
+            try {
+                const response = await fetch("/runpod/timer", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "toggle", enabled: nextEnabled })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.timer) {
+                        timerState.enabled = data.timer.enabled;
+                        timerState.secondsLeft = data.timer.seconds_left;
+                        timerState.jobActive = data.timer.job_active;
+                        timerState.running = timerState.enabled && !timerState.jobActive;
+                        const settingsUi = app?.ui?.settings;
+                        if (settingsUi?.setSettingValue) {
+                            try {
+                                settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
+                            } catch (e) {}
+                        }
                     }
                 }
+            } catch (e) {
+                console.warn("[RunPod Control] Failed to toggle timer:", e);
             }
-        } catch (e) {
-            console.warn("[RunPod Control] Failed to toggle timer:", e);
-        }
-        toggleTimerBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
-        updateButtonUI();
-    });
+            const labelEl = toggleTimerBtn.querySelector(".runpod-menu-item-label");
+            if (labelEl) {
+                labelEl.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
+            }
+            updateButtonUI();
+        },
+        { iconClass: "icon-[lucide--clock]" }
+    );
 
-    const killPodBtn = createItem("Kill Pod", () => {
-        if (runpodStatus.pod_id) {
-            const dialog = new KillPodDialog();
-            dialog.showKillConfirmation();
-        } else {
-            showToast("Kill Pod", "Pod ID not detected", "warn");
+    const killPodBtn = createItem(
+        "Kill Pod",
+        () => {
+            if (runpodStatus.pod_id) {
+                const dialog = new KillPodDialog();
+                dialog.showKillConfirmation();
+            } else {
+                showToast("Kill Pod", "Pod ID not detected", "warn");
+            }
+        },
+        {
+            iconClass: "icon-[lucide--trash-2]",
+            destructive: true
         }
-    });
+    );
 
     menu.appendChild(outputsBtn);
     menu.appendChild(fbBtn);
     menu.appendChild(infoBtn);
+    menu.appendChild(createSeparator());
     menu.appendChild(restartBtn);
     menu.appendChild(toggleTimerBtn);
+    menu.appendChild(createSeparator());
     menu.appendChild(killPodBtn);
 
     document.body.appendChild(menu);
@@ -979,7 +1128,7 @@ function toggleRunPodMenu(event) {
     // Automatically reset the timer on click/menu open
     resetTimer();
 
-    const btn = document.querySelector('button[aria-label="RunPod Control"]');
+    const btn = document.querySelector(RUNPOD_BUTTON_SELECTOR);
     if (!btn) return;
     
     if (unifiedDropdownMenu && unifiedDropdownMenu.style.display === "flex") {
@@ -988,16 +1137,25 @@ function toggleRunPodMenu(event) {
     }
 
     const menu = ensureUnifiedDropdown(btn);
-    // Ensure toggle button text is current
-    const toggleBtn = Array.from(menu.children).find(c => c.textContent.includes("shutdown timer"));
-    if (toggleBtn) {
-        toggleBtn.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
+    // Ensure toggle button text is current without overwriting the icon span
+    const toggleLabel = Array.from(menu.querySelectorAll(".runpod-menu-item-label")).find((el) =>
+        el.textContent.includes("shutdown timer")
+    );
+    if (toggleLabel) {
+        toggleLabel.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
     }
 
     const rect = btn.getBoundingClientRect();
-    menu.style.left = `${Math.round(rect.left)}px`;
-    menu.style.top = `${Math.round(rect.bottom + 6)}px`;
     menu.style.display = "flex";
+    const menuWidth = menu.offsetWidth || 208;
+    const clampedLeft = Math.max(
+        8,
+        Math.min(Math.round(rect.left), window.innerWidth - menuWidth - 8)
+    );
+    menu.style.left = `${clampedLeft}px`;
+    menu.style.top = `${Math.round(rect.bottom + 8)}px`;
+    menu.setAttribute("data-state", "open");
+    syncRunPodButtonOpenState(true);
 }
 
 // Centered Glassmorphism Countdown Overlay
@@ -1134,10 +1292,20 @@ function queueUpdateUI() {
     });
 }
 
-// Global click listeners to auto-dismiss menus
-document.addEventListener("click", () => {
+// Global listeners to auto-dismiss menus
+document.addEventListener("click", (event) => {
+    const target = event?.target;
+    if (target instanceof Element && (unifiedDropdownMenu?.contains(target) || target.closest(RUNPOD_BUTTON_SELECTOR))) {
+        return;
+    }
     hideAllDropdowns();
+}, true);
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        hideAllDropdowns();
+    }
 });
+window.addEventListener("resize", hideAllDropdowns);
 
 // Extension registration
 app.registerExtension({
