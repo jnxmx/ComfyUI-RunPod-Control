@@ -104,6 +104,219 @@ function syncRunPodButtonOpenState(isOpenOverride = null) {
     });
 }
 
+// =========================================================================
+// Compact Resource Monitor (RunPod-style horseshoe gauges, <= 32px height)
+// =========================================================================
+const RESOURCE_MONITOR_ID = "runpod-resource-monitor";
+let resourceMonitorTimerId = null;
+let lastMonitorData = null;
+
+function getMonitorSetting(id, fallback) {
+    const settingsUi = app?.ui?.settings;
+    if (settingsUi?.getSettingValue) {
+        const val = settingsUi.getSettingValue(id);
+        if (val !== undefined && val !== null) return val;
+    }
+    return fallback;
+}
+
+function isResourceMonitorEnabled() {
+    return getMonitorSetting("runpod.monitor.enabled", true) !== false;
+}
+
+function getMonitorColor(value, isTemp = false) {
+    if (isTemp) {
+        if (value < 60) return "#6764f6";
+        if (value < 75) return "#38bdf8";
+        if (value < 85) return "#f59e0b";
+        return "#ef4444";
+    }
+    if (value < 50) return "#6764f6";
+    if (value < 75) return "#38bdf8";
+    if (value < 90) return "#f59e0b";
+    return "#ef4444";
+}
+
+function formatBytesGiB(bytes) {
+    if (typeof bytes !== "number" || bytes < 0) return "?";
+    return (bytes / (1024 ** 3)).toFixed(1) + " GiB";
+}
+
+function polarToCartesian(cx, cy, r, angleDeg) {
+    const rad = (angleDeg * Math.PI) / 180;
+    return {
+        x: cx + r * Math.cos(rad),
+        y: cy + r * Math.sin(rad)
+    };
+}
+
+function describeArc(cx, cy, r, startAngle, endAngle) {
+    const start = polarToCartesian(cx, cy, r, startAngle);
+    const end = polarToCartesian(cx, cy, r, endAngle);
+    const sweep = endAngle - startAngle;
+    const largeArcFlag = sweep > 180 ? "1" : "0";
+    return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArcFlag} 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
+}
+
+// Track spans 145° -> 395° (250° arc, leaving a wide 110° bottom gap so ends never touch %)
+const GAUGE_START_DEG = 145;
+const GAUGE_SPAN_DEG = 250;
+const GAUGE_TRACK_D = describeArc(18, 17.5, 13.8, GAUGE_START_DEG, GAUGE_START_DEG + GAUGE_SPAN_DEG);
+
+function buildGaugeSvg(label, pct, displayValue, tooltip, isTemp = false) {
+    const valid = typeof pct === "number" && pct >= 0;
+    const clamped = valid ? Math.max(0, Math.min(100, pct)) : 0;
+    const color = valid ? getMonitorColor(isTemp ? pct : clamped, isTemp) : "rgba(255,255,255,0.2)";
+    const fillEnd = GAUGE_START_DEG + (GAUGE_SPAN_DEG * clamped) / 100;
+    const fillPath = clamped > 0.5
+        ? `<path d="${describeArc(18, 17.5, 13.8, GAUGE_START_DEG, fillEnd)}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" style="transition: stroke 0.25s ease;" />`
+        : "";
+    const labelFontSize = label.length >= 4 ? "6.6" : "7.2";
+
+    return `
+        <div class="runpod-gauge-item" title="${tooltip}" style="position:relative;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;user-select:none;cursor:default;">
+            <svg viewBox="0 0 36 36" width="30" height="30" style="display:block;overflow:visible;">
+                <path d="${GAUGE_TRACK_D}" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2.6" stroke-linecap="round" />
+                ${fillPath}
+                <text x="18" y="16.2" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #d4d6e0)" font-family="Inter, system-ui, sans-serif" font-size="${labelFontSize}" font-weight="700" letter-spacing="-0.2">${label}</text>
+                <text x="18" y="31.5" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #f4f4f8)" font-family="Inter, system-ui, sans-serif" font-size="8.4" font-weight="700" style="font-variant-numeric:tabular-nums;">${displayValue}</text>
+            </svg>
+        </div>
+    `;
+}
+
+function renderResourceMonitor(data) {
+    const container = document.getElementById(RESOURCE_MONITOR_ID);
+    if (!container || !isResourceMonitorEnabled()) return;
+
+    const showRam = getMonitorSetting("runpod.monitor.show_ram", true) !== false;
+    const showGpu = getMonitorSetting("runpod.monitor.show_gpu", true) !== false;
+    const showVram = getMonitorSetting("runpod.monitor.show_vram", true) !== false;
+    const showHdd = getMonitorSetting("runpod.monitor.show_hdd", true) !== false;
+    const showCpu = getMonitorSetting("runpod.monitor.show_cpu", false) === true;
+    const showTemp = getMonitorSetting("runpod.monitor.show_temp", false) === true;
+
+    const gauges = [];
+    const gpu0 = Array.isArray(data?.gpus) && data.gpus.length > 0 ? data.gpus[0] : null;
+
+    if (showCpu) {
+        const val = data?.cpu_utilization;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
+        gauges.push(buildGaugeSvg("CPU", val, txt, `CPU Utilization: ${txt}`));
+    }
+    if (showRam) {
+        const val = data?.ram_used_percent;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
+        const tip = data?.ram_total > 0
+            ? `RAM: ${formatBytesGiB(data.ram_used)} / ${formatBytesGiB(data.ram_total)} (${txt})`
+            : `RAM: ${txt}`;
+        gauges.push(buildGaugeSvg("RAM", val, txt, tip));
+    }
+    if (showGpu) {
+        const val = gpu0?.gpu_utilization;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
+        const gpuName = gpu0?.name ? ` (${gpu0.name})` : "";
+        gauges.push(buildGaugeSvg("GPU", val, txt, `GPU Utilization${gpuName}: ${txt}`));
+    }
+    if (showVram) {
+        const val = gpu0?.vram_used_percent;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
+        const tip = gpu0?.vram_total > 0
+            ? `VRAM: ${formatBytesGiB(gpu0.vram_used)} / ${formatBytesGiB(gpu0.vram_total)} (${txt})`
+            : `VRAM: ${txt}`;
+        gauges.push(buildGaugeSvg("VRAM", val, txt, tip));
+    }
+    if (showTemp) {
+        const val = gpu0?.gpu_temperature;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}°` : "--";
+        gauges.push(buildGaugeSvg("TMP", val, txt, `GPU Temperature: ${txt}C`, true));
+    }
+    if (showHdd) {
+        const val = data?.hdd_used_percent;
+        const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
+        const pathLabel = data?.hdd_path || getMonitorSetting("runpod.monitor.hdd_path", "/");
+        const tip = data?.hdd_total > 0
+            ? `Disk (${pathLabel}): ${formatBytesGiB(data.hdd_used)} / ${formatBytesGiB(data.hdd_total)} (${txt})`
+            : `Disk (${pathLabel}): ${txt}`;
+        gauges.push(buildGaugeSvg("HDD", val, txt, tip));
+    }
+
+    container.style.display = gauges.length > 0 ? "inline-flex" : "none";
+    container.innerHTML = gauges.join("");
+}
+
+function updateResourceMonitorPlacement(btn) {
+    let container = document.getElementById(RESOURCE_MONITOR_ID);
+    if (!isResourceMonitorEnabled()) {
+        if (container) container.remove();
+        stopResourceMonitor();
+        return;
+    }
+
+    if (!btn) return;
+
+    if (!container) {
+        container = document.createElement("div");
+        container.id = RESOURCE_MONITOR_ID;
+        Object.assign(container.style, {
+            display: "inline-flex",
+            alignItems: "center",
+            height: "32px",
+            gap: "6px",
+            marginLeft: "6px",
+            padding: "0",
+            border: "none",
+            background: "transparent",
+            flexShrink: "0",
+            verticalAlign: "middle"
+        });
+    }
+
+    if (btn.nextElementSibling !== container) {
+        btn.insertAdjacentElement("afterend", container);
+    }
+
+    if (lastMonitorData) {
+        renderResourceMonitor(lastMonitorData);
+    } else {
+        renderResourceMonitor(null);
+    }
+
+    if (!resourceMonitorTimerId) {
+        startResourceMonitor();
+    }
+}
+
+async function pollResourceMonitorOnce() {
+    if (!isResourceMonitorEnabled()) return;
+    const hddPath = encodeURIComponent(getMonitorSetting("runpod.monitor.hdd_path", "/") || "/");
+    try {
+        const res = await fetch(`/runpod/monitor?hdd_path=${hddPath}`, { cache: "no-store" });
+        if (res.ok) {
+            lastMonitorData = await res.json();
+            renderResourceMonitor(lastMonitorData);
+        }
+    } catch (e) {
+        // Ignore transient errors while server restarts
+    }
+}
+
+function stopResourceMonitor() {
+    if (resourceMonitorTimerId) {
+        clearInterval(resourceMonitorTimerId);
+        resourceMonitorTimerId = null;
+    }
+}
+
+function startResourceMonitor() {
+    stopResourceMonitor();
+    if (!isResourceMonitorEnabled()) return;
+    let rateSec = parseFloat(getMonitorSetting("runpod.monitor.refresh_rate", 1.5));
+    if (isNaN(rateSec) || rateSec < 0.5) rateSec = 1.5;
+    pollResourceMonitorOnce();
+    resourceMonitorTimerId = setInterval(pollResourceMonitorOnce, Math.round(rateSec * 1000));
+}
+
 // Intercept and prevent "Confirm on close/leave" prompts if redirecting intentionally
 window.addEventListener("beforeunload", (e) => {
     if (bypassBeforeUnload) {
@@ -629,6 +842,7 @@ function updateButtonUI() {
         btn.style.boxShadow = "";
     }
     syncRunPodButtonOpenState();
+    updateResourceMonitorPlacement(btn);
 }
 
 // Start, Pause, Reset Timer logic
@@ -1427,13 +1641,119 @@ app.registerExtension({
                     }).then(() => fetchRunPodStatus()).then(() => updateButtonUI());
                 }
             }
+        },
+        {
+            id: "runpod.monitor.enabled",
+            category: ["RunPod Control", "Resource Monitor", "Enable"],
+            name: "Enable Resource Monitor",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Show compact RunPod-style resource gauges right next to the RunPod button.",
+            onChange() {
+                updateButtonUI();
+                if (isResourceMonitorEnabled()) startResourceMonitor();
+                else stopResourceMonitor();
+            }
+        },
+        {
+            id: "runpod.monitor.show_ram",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show RAM",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Display container-aware RAM usage gauge.",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.show_gpu",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show GPU Utilization",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Display GPU compute utilization gauge.",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.show_vram",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show VRAM",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Display GPU VRAM usage gauge.",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.show_hdd",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show HDD",
+            type: "boolean",
+            defaultValue: true,
+            tooltip: "Display disk usage gauge.",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.show_cpu",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show CPU (Crystools)",
+            type: "boolean",
+            defaultValue: false,
+            tooltip: "Display CPU utilization gauge.",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.show_temp",
+            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            name: "Show GPU Temp (Crystools)",
+            type: "boolean",
+            defaultValue: false,
+            tooltip: "Display GPU temperature gauge (°C).",
+            onChange() {
+                renderResourceMonitor(lastMonitorData);
+            }
+        },
+        {
+            id: "runpod.monitor.refresh_rate",
+            category: ["RunPod Control", "Resource Monitor", "Refresh"],
+            name: "Refresh Interval (seconds)",
+            type: "slider",
+            defaultValue: 1.5,
+            attrs: { min: 0.5, max: 5, step: 0.5 },
+            tooltip: "How often to poll hardware metrics from the pod.",
+            onChange() {
+                startResourceMonitor();
+            }
+        },
+        {
+            id: "runpod.monitor.hdd_path",
+            category: ["RunPod Control", "Resource Monitor", "Disk"],
+            name: "HDD Mount Path",
+            type: "combo",
+            defaultValue: "/",
+            options: [
+                { value: "/", text: "Container Root (/)" },
+                { value: "/workspace", text: "Workspace Volume (/workspace)" }
+            ],
+            tooltip: "Filesystem path to monitor for HDD usage.",
+            onChange() {
+                pollResourceMonitorOnce();
+            }
         }
     ],
     setup() {
         fetchRunPodStatus().then((isRunPod) => {
             if (!isRunPod) return;
 
-            // Sync current client settings to backend on startup
+            // Sync current client settings with backend on startup
             const syncSettings = async () => {
                 const envMins = runpodStatus.timer?.env_duration_minutes;
                 const settingsUi = app?.ui?.settings;
@@ -1459,19 +1779,14 @@ app.registerExtension({
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ action: "set_shutdown_action", shutdown_action: act })
                 });
-                if (runpodStatus.timer?.env_disabled) {
-                    const settingsUi = app?.ui?.settings;
-                    if (settingsUi?.setSettingValue && timerPref !== false) {
-                        try {
-                            settingsUi.setSettingValue("runpod.enable_shutdown_timer", false);
-                        } catch (e) {}
-                    }
-                } else if (typeof timerPref === "boolean") {
-                    await fetch("/runpod/timer", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "toggle", enabled: timerPref })
-                    });
+
+                // Backend is authoritative for timer enabled state across restarts
+                // (env_disabled + persisted runpod_timer_state.json).
+                const backendEnabled = Boolean(runpodStatus.timer?.enabled);
+                if (settingsUi?.setSettingValue && timerPref !== backendEnabled) {
+                    try {
+                        settingsUi.setSettingValue("runpod.enable_shutdown_timer", backendEnabled);
+                    } catch (e) {}
                 }
                 await fetchRunPodStatus();
                 updateButtonUI();
@@ -1485,7 +1800,8 @@ app.registerExtension({
                     const target = m.target;
                     if (target && target.closest && (
                         target.closest("#runpod-unified-dropdown") ||
-                        target.closest("#runpod-countdown-overlay")
+                        target.closest("#runpod-countdown-overlay") ||
+                        target.closest(`#${RESOURCE_MONITOR_ID}`)
                     )) {
                         selfTriggered = true;
                         break;

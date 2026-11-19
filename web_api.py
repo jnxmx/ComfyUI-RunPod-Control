@@ -1,10 +1,31 @@
 import os
 import sys
+import json
 import asyncio
 import shutil
 import logging
 from aiohttp import web
 import comfy.model_management as comfy_mm
+
+TIMER_STATE_FILE = os.path.join(os.path.dirname(__file__), "runpod_timer_state.json")
+
+def _load_timer_enabled_state():
+    try:
+        if os.path.exists(TIMER_STATE_FILE):
+            with open(TIMER_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and isinstance(data.get("enabled"), bool):
+                return data["enabled"]
+    except Exception:
+        pass
+    return None
+
+def _save_timer_enabled_state(enabled: bool):
+    try:
+        with open(TIMER_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"enabled": bool(enabled)}, f)
+    except Exception as e:
+        print(f"[ComfyUI-RunPod-Control] Failed to save timer state: {e}")
 
 def is_timer_disabled_by_env() -> bool:
     for var in [
@@ -38,7 +59,11 @@ def get_env_shutdown_minutes():
 
 class RunPodTimer:
     def __init__(self):
-        self.enabled = not is_timer_disabled_by_env()
+        if is_timer_disabled_by_env():
+            self.enabled = False
+        else:
+            saved_enabled = _load_timer_enabled_state()
+            self.enabled = saved_enabled if saved_enabled is not None else True
         env_mins = get_env_shutdown_minutes()
         if env_mins is not None:
             self.duration_seconds = env_mins * 60
@@ -440,8 +465,9 @@ async def post_runpod_timer(request):
         if action == "reset":
             runpod_timer.seconds_left = runpod_timer.duration_seconds
         elif action == "toggle":
-            enabled = body.get("enabled", not runpod_timer.enabled)
+            enabled = bool(body.get("enabled", not runpod_timer.enabled))
             runpod_timer.enabled = enabled
+            _save_timer_enabled_state(enabled)
             if enabled:
                 runpod_timer.seconds_left = runpod_timer.duration_seconds
         elif action == "set_duration":
@@ -596,6 +622,152 @@ def _ensure_ws_keepalive_task():
         print(f"[ComfyUI-RunPod-Control] Failed to start WebSocket keepalive task: {e}")
         _ws_keepalive_task = None
 
+_nvml_initialized = False
+_nvml_available = False
+_nvml_handles = []
+
+def _ensure_nvml():
+    global _nvml_initialized, _nvml_available, _nvml_handles
+    if _nvml_initialized:
+        return _nvml_available
+    _nvml_initialized = True
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        _nvml_handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(count)]
+        _nvml_available = len(_nvml_handles) > 0
+    except Exception:
+        _nvml_available = False
+        _nvml_handles = []
+    return _nvml_available
+
+def _get_gpu_metrics():
+    gpus = []
+    if _ensure_nvml():
+        try:
+            import pynvml
+            for idx, handle in enumerate(_nvml_handles):
+                util = -1
+                temp = -1
+                vram_total = -1
+                vram_used = -1
+                vram_pct = -1
+                name = f"GPU {idx}"
+                try:
+                    raw_name = pynvml.nvmlDeviceGetName(handle)
+                    name = raw_name.decode("utf-8", errors="ignore") if isinstance(raw_name, bytes) else str(raw_name)
+                except Exception:
+                    pass
+                try:
+                    util = int(pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
+                except Exception:
+                    pass
+                try:
+                    mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                    vram_total = int(mem.total)
+                    vram_used = int(mem.used)
+                    if vram_total > 0:
+                        vram_pct = round((vram_used / vram_total) * 100.0, 1)
+                except Exception:
+                    pass
+                try:
+                    temp = int(pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU))
+                except Exception:
+                    pass
+                gpus.append({
+                    "index": idx,
+                    "name": name,
+                    "gpu_utilization": util,
+                    "vram_total": vram_total,
+                    "vram_used": vram_used,
+                    "vram_used_percent": vram_pct,
+                    "gpu_temperature": temp,
+                })
+            if gpus:
+                return gpus
+        except Exception:
+            pass
+
+    # Fallback via PyTorch CUDA if pynvml is unavailable
+    try:
+        import torch
+        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+            for idx in range(torch.cuda.device_count()):
+                free_b, total_b = torch.cuda.mem_get_info(idx)
+                used_b = max(total_b - free_b, 0)
+                vram_pct = round((used_b / total_b) * 100.0, 1) if total_b > 0 else -1
+                gpus.append({
+                    "index": idx,
+                    "name": torch.cuda.get_device_name(idx),
+                    "gpu_utilization": -1,
+                    "vram_total": int(total_b),
+                    "vram_used": int(used_b),
+                    "vram_used_percent": vram_pct,
+                    "gpu_temperature": -1,
+                })
+    except Exception:
+        pass
+    return gpus
+
+async def get_runpod_monitor(request):
+    hdd_path = request.query.get("hdd_path", "/").strip() or "/"
+    if hdd_path not in ("/", "/workspace"):
+        hdd_path = "/"
+    if hdd_path == "/workspace" and not os.path.exists("/workspace"):
+        hdd_path = "/"
+
+    cpu_percent = -1
+    ram_total = -1
+    ram_used = -1
+    ram_percent = -1
+    hdd_total = -1
+    hdd_used = -1
+    hdd_percent = -1
+
+    ps = getattr(comfy_mm, "psutil", None)
+    if ps is None:
+        try:
+            import psutil as ps
+        except Exception:
+            ps = None
+
+    if ps is not None:
+        try:
+            cpu_percent = round(float(ps.cpu_percent(interval=None)), 1)
+        except Exception:
+            pass
+
+        try:
+            vm = ps.virtual_memory()
+            ram_total = int(getattr(vm, "total", 0) or 0)
+            ram_avail = int(getattr(vm, "available", 0) or 0)
+            if ram_total > 0:
+                ram_used = max(ram_total - ram_avail, 0)
+                ram_percent = round((ram_used / ram_total) * 100.0, 1)
+        except Exception:
+            pass
+
+        try:
+            du = ps.disk_usage(hdd_path)
+            hdd_total = int(du.total)
+            hdd_used = int(du.used)
+            hdd_percent = round(float(du.percent), 1)
+        except Exception:
+            pass
+
+    return web.json_response({
+        "cpu_utilization": cpu_percent,
+        "ram_total": ram_total,
+        "ram_used": ram_used,
+        "ram_used_percent": ram_percent,
+        "hdd_path": hdd_path,
+        "hdd_total": hdd_total,
+        "hdd_used": hdd_used,
+        "hdd_used_percent": hdd_percent,
+        "gpus": _get_gpu_metrics(),
+    })
+
 def setup(app):
     if app is None:
         return
@@ -608,6 +780,7 @@ def setup(app):
     _ensure_ws_keepalive_task()
     
     _safe_add_route(app, "GET", "/runpod/status", get_runpod_status)
+    _safe_add_route(app, "GET", "/runpod/monitor", get_runpod_monitor)
     _safe_add_route(app, "POST", "/runpod/shutdown", post_runpod_shutdown)
     _safe_add_route(app, "POST", "/runpod/restart", post_runpod_restart)
     _safe_add_route(app, "GET", "/runpod/restart", post_runpod_restart)
