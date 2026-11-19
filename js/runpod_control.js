@@ -161,7 +161,10 @@ function describeArc(cx, cy, r, startAngle, endAngle) {
 // Track spans 145° -> 395° (250° arc, leaving a wide 110° bottom gap so ends never touch %)
 const GAUGE_START_DEG = 145;
 const GAUGE_SPAN_DEG = 250;
-const GAUGE_TRACK_D = describeArc(18, 17.5, 13.8, GAUGE_START_DEG, GAUGE_START_DEG + GAUGE_SPAN_DEG);
+const GAUGE_CX = 18;
+const GAUGE_CY = 15.6;
+const GAUGE_R = 14.3;
+const GAUGE_TRACK_D = describeArc(GAUGE_CX, GAUGE_CY, GAUGE_R, GAUGE_START_DEG, GAUGE_START_DEG + GAUGE_SPAN_DEG);
 
 function buildGaugeSvg(label, pct, displayValue, tooltip, isTemp = false) {
     const valid = typeof pct === "number" && pct >= 0;
@@ -169,17 +172,17 @@ function buildGaugeSvg(label, pct, displayValue, tooltip, isTemp = false) {
     const color = valid ? getMonitorColor(isTemp ? pct : clamped, isTemp) : "rgba(255,255,255,0.2)";
     const fillEnd = GAUGE_START_DEG + (GAUGE_SPAN_DEG * clamped) / 100;
     const fillPath = clamped > 0.5
-        ? `<path d="${describeArc(18, 17.5, 13.8, GAUGE_START_DEG, fillEnd)}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" style="transition: stroke 0.25s ease;" />`
+        ? `<path d="${describeArc(GAUGE_CX, GAUGE_CY, GAUGE_R, GAUGE_START_DEG, fillEnd)}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" style="transition: stroke 0.25s ease;" />`
         : "";
-    const labelFontSize = label.length >= 4 ? "6.6" : "7.2";
+    const labelFontSize = label.length >= 4 ? "7.8" : "8.8";
 
     return `
-        <div class="runpod-gauge-item" title="${tooltip}" style="position:relative;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;user-select:none;cursor:default;">
-            <svg viewBox="0 0 36 36" width="30" height="30" style="display:block;overflow:visible;">
+        <div class="runpod-gauge-item" title="${tooltip}" style="position:relative;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;user-select:none;cursor:default;">
+            <svg viewBox="0 0 36 36" width="32" height="32" style="display:block;overflow:visible;">
                 <path d="${GAUGE_TRACK_D}" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2.6" stroke-linecap="round" />
                 ${fillPath}
-                <text x="18" y="16.2" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #d4d6e0)" font-family="Inter, system-ui, sans-serif" font-size="${labelFontSize}" font-weight="700" letter-spacing="-0.2">${label}</text>
-                <text x="18" y="31.5" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #f4f4f8)" font-family="Inter, system-ui, sans-serif" font-size="8.4" font-weight="700" style="font-variant-numeric:tabular-nums;">${displayValue}</text>
+                <text x="18" y="15.4" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #d4d6e0)" font-family="Inter, system-ui, sans-serif" font-size="${labelFontSize}" font-weight="700" letter-spacing="-0.2">${label}</text>
+                <text x="18" y="30.8" text-anchor="middle" dominant-baseline="central" fill="var(--foreground, #f4f4f8)" font-family="Inter, system-ui, sans-serif" font-size="8.6" font-weight="700" style="font-variant-numeric:tabular-nums;">${displayValue}</text>
             </svg>
         </div>
     `;
