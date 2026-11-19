@@ -711,9 +711,9 @@ def _get_gpu_metrics():
     return gpus
 
 async def get_runpod_monitor(request):
-    hdd_path = request.query.get("hdd_path", "/").strip() or "/"
+    hdd_path = request.query.get("hdd_path", "/workspace").strip() or "/workspace"
     if hdd_path not in ("/", "/workspace"):
-        hdd_path = "/"
+        hdd_path = "/workspace"
     if hdd_path == "/workspace" and not os.path.exists("/workspace"):
         hdd_path = "/"
 

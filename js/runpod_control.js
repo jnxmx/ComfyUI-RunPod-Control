@@ -237,7 +237,7 @@ function renderResourceMonitor(data) {
     if (showHdd) {
         const val = data?.hdd_used_percent;
         const txt = typeof val === "number" && val >= 0 ? `${Math.round(val)}%` : "--";
-        const pathLabel = data?.hdd_path || getMonitorSetting("runpod.monitor.hdd_path", "/");
+        const pathLabel = data?.hdd_path || getMonitorSetting("runpod.monitor.hdd_path", "/workspace");
         const tip = data?.hdd_total > 0
             ? `Disk (${pathLabel}): ${formatBytesGiB(data.hdd_used)} / ${formatBytesGiB(data.hdd_total)} (${txt})`
             : `Disk (${pathLabel}): ${txt}`;
@@ -340,7 +340,7 @@ function updateResourceMonitorPlacement(btn) {
 
 async function pollResourceMonitorOnce() {
     if (!isResourceMonitorEnabled()) return;
-    const hddPath = encodeURIComponent(getMonitorSetting("runpod.monitor.hdd_path", "/") || "/");
+    const hddPath = encodeURIComponent(getMonitorSetting("runpod.monitor.hdd_path", "/workspace") || "/workspace");
     try {
         const res = await fetch(`/runpod/monitor?hdd_path=${hddPath}`, { cache: "no-store" });
         if (res.ok) {
@@ -1789,10 +1789,10 @@ app.registerExtension({
             category: ["RunPod Control", "Resource Monitor", "Disk"],
             name: "HDD Mount Path",
             type: "combo",
-            defaultValue: "/",
+            defaultValue: "/workspace",
             options: [
-                { value: "/", text: "Container Root (/)" },
-                { value: "/workspace", text: "Workspace Volume (/workspace)" }
+                { value: "/workspace", text: "Workspace Volume (/workspace)" },
+                { value: "/", text: "Container Root (/)" }
             ],
             tooltip: "Filesystem path to monitor for HDD usage.",
             onChange() {
