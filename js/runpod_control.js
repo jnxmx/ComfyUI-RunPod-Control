@@ -529,7 +529,7 @@ async function fetchRunPodStatus() {
     }
     
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) throw new Error("Backend unavailable");
         runpodStatus = await response.json();
         
@@ -1237,6 +1237,79 @@ class KillPodDialog extends ComfyDialogClass {
     }
 }
 
+let isApplyingTimerSetting = false;
+
+async function promptForTimerMinutes(defaultMins = 30) {
+    const defStr = String(defaultMins > 0 ? defaultMins : 30);
+    const dialogPrompt = app?.extensionManager?.dialog?.prompt;
+    if (typeof dialogPrompt === "function") {
+        return await dialogPrompt({
+            title: "Enable Shutdown Timer",
+            message: "How many minutes should the shutdown timer be set for?",
+            defaultValue: defStr
+        });
+    }
+    return window.prompt("How many minutes should the shutdown timer be set for?", defStr);
+}
+
+async function applyTimerToggle(nextEnabled, { promptMinutes = true } = {}) {
+    let durationSeconds = null;
+    if (nextEnabled && promptMinutes) {
+        const raw = await promptForTimerMinutes(30);
+        if (raw === null || raw === undefined) {
+            return false;
+        }
+        const mins = parseInt(String(raw).trim(), 10);
+        if (isNaN(mins) || mins < 1 || mins > 1440) {
+            showToast("Shutdown Timer", "Please enter a valid duration between 1 and 1440 minutes.", "warn");
+            return false;
+        }
+        durationSeconds = mins * 60;
+    }
+
+    try {
+        const payload = { action: "toggle", enabled: Boolean(nextEnabled) };
+        if (durationSeconds !== null) {
+            payload.duration_seconds = durationSeconds;
+        }
+        const response = await fetch("/runpod/timer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+            const data = await response.json();
+            if (data.timer) {
+                timerState.enabled = data.timer.enabled;
+                timerState.secondsLeft = data.timer.seconds_left;
+                timerState.jobActive = data.timer.job_active;
+                timerState.running = timerState.enabled && !timerState.jobActive;
+                const settingsUi = app?.ui?.settings;
+                if (settingsUi?.setSettingValue) {
+                    isApplyingTimerSetting = true;
+                    try {
+                        settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
+                        if (durationSeconds !== null) {
+                            settingsUi.setSettingValue("runpod.shutdown_minutes", Math.round(durationSeconds / 60));
+                        }
+                    } catch (e) {
+                    } finally {
+                        isApplyingTimerSetting = false;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("[RunPod Control] Failed to toggle timer:", e);
+    }
+
+    if (!timerState.enabled) {
+        hideCountdownOverlay();
+    }
+    updateButtonUI();
+    return true;
+}
+
 function ensureUnifiedDropdown(buttonEl) {
     if (unifiedDropdownMenu) return unifiedDropdownMenu;
 
@@ -1351,35 +1424,11 @@ function ensureUnifiedDropdown(buttonEl) {
         timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer",
         async () => {
             const nextEnabled = !timerState.enabled;
-            try {
-                const response = await fetch("/runpod/timer", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "toggle", enabled: nextEnabled })
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.timer) {
-                        timerState.enabled = data.timer.enabled;
-                        timerState.secondsLeft = data.timer.seconds_left;
-                        timerState.jobActive = data.timer.job_active;
-                        timerState.running = timerState.enabled && !timerState.jobActive;
-                        const settingsUi = app?.ui?.settings;
-                        if (settingsUi?.setSettingValue) {
-                            try {
-                                settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
-                            } catch (e) {}
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("[RunPod Control] Failed to toggle timer:", e);
-            }
+            await applyTimerToggle(nextEnabled, { promptMinutes: nextEnabled });
             const labelEl = toggleTimerBtn.querySelector(".runpod-menu-item-label");
             if (labelEl) {
                 labelEl.textContent = timerState.enabled ? "Disable shutdown timer" : "Enable shutdown timer";
             }
-            updateButtonUI();
         },
         { iconClass: "icon-[lucide--clock]" }
     );
@@ -1617,13 +1666,21 @@ app.registerExtension({
             type: "boolean",
             defaultValue: true,
             tooltip: "Controls whether the automatic idle shutdown countdown timer is enabled or disabled by default.",
-            onChange(value) {
-                if (typeof value === "boolean") {
-                    fetch("/runpod/timer", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "toggle", enabled: value })
-                    }).then(() => fetchRunPodStatus()).then(() => updateButtonUI());
+            async onChange(value) {
+                if (isApplyingTimerSetting || typeof value !== "boolean") return;
+                if (value === timerState.enabled) return;
+                const applied = await applyTimerToggle(value, { promptMinutes: value });
+                if (!applied) {
+                    const settingsUi = app?.ui?.settings;
+                    if (settingsUi?.setSettingValue) {
+                        isApplyingTimerSetting = true;
+                        try {
+                            settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
+                        } catch (e) {
+                        } finally {
+                            isApplyingTimerSetting = false;
+                        }
+                    }
                 }
             }
         },
@@ -1636,6 +1693,7 @@ app.registerExtension({
             tooltip: "How long the pod should remain idle after all jobs finish before shutting down.",
             attrs: { min: 1, max: 1440, step: 1 },
             onChange(value) {
+                if (isApplyingTimerSetting) return;
                 let val = value;
                 if (typeof val === "string") val = parseInt(val, 10);
                 if (typeof val === "number" && !isNaN(val) && val > 0) {
@@ -1736,7 +1794,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_ram",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show RAM"],
             name: "Show RAM",
             type: "boolean",
             defaultValue: true,
@@ -1747,7 +1805,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_gpu",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show GPU"],
             name: "Show GPU Utilization",
             type: "boolean",
             defaultValue: true,
@@ -1758,7 +1816,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_vram",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show VRAM"],
             name: "Show VRAM",
             type: "boolean",
             defaultValue: true,
@@ -1769,7 +1827,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_hdd",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show HDD"],
             name: "Show HDD",
             type: "boolean",
             defaultValue: true,
@@ -1780,7 +1838,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_cpu",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show CPU"],
             name: "Show CPU (Crystools)",
             type: "boolean",
             defaultValue: false,
@@ -1791,7 +1849,7 @@ app.registerExtension({
         },
         {
             id: "runpod.monitor.show_temp",
-            category: ["RunPod Control", "Resource Monitor", "Indicators"],
+            category: ["RunPod Control", "Resource Monitor", "Show GPU Temp"],
             name: "Show GPU Temp (Crystools)",
             type: "boolean",
             defaultValue: false,

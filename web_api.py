@@ -466,6 +466,9 @@ async def post_runpod_timer(request):
             runpod_timer.seconds_left = runpod_timer.duration_seconds
         elif action == "toggle":
             enabled = bool(body.get("enabled", not runpod_timer.enabled))
+            duration = body.get("duration_seconds")
+            if isinstance(duration, int) and duration > 0:
+                runpod_timer.duration_seconds = duration
             runpod_timer.enabled = enabled
             _save_timer_enabled_state(enabled)
             if enabled:
