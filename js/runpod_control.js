@@ -596,70 +596,133 @@ async function fetchRunPodStatus() {
     }
 }
 
-// Show redirect countdown page
-function showRedirectCountdown() {
-    const existing = document.getElementById("runpod-redirect-overlay");
+function createNativeDialogButton(label, variant = "secondary") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    const isPrimary = variant === "primary";
+    const isDestructive = variant === "destructive";
+    const bg = isPrimary
+        ? "var(--primary-background, #6366f1)"
+        : isDestructive
+            ? "var(--destructive-background, #ef4444)"
+            : "var(--secondary-background, rgba(255, 255, 255, 0.08))";
+    const bgHover = isPrimary
+        ? "var(--primary-background-hover, #4f46e5)"
+        : isDestructive
+            ? "var(--destructive-background-hover, #dc2626)"
+            : "var(--secondary-background-hover, rgba(255, 255, 255, 0.14))";
+    const fg = (isPrimary || isDestructive) ? "#fff" : "var(--base-foreground, var(--foreground, #e5e7eb))";
+
+    Object.assign(btn.style, {
+        minHeight: "34px",
+        padding: "0 14px",
+        fontSize: "13px",
+        fontWeight: "500",
+        fontFamily: "var(--font-inter, Inter, sans-serif)",
+        borderRadius: "8px",
+        border: "1px solid var(--interface-stroke, rgba(255, 255, 255, 0.08))",
+        background: bg,
+        color: fg,
+        cursor: "pointer",
+        transition: "background-color 120ms ease, opacity 120ms ease",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: "1.1"
+    });
+    btn.addEventListener("mouseenter", () => { btn.style.background = bgHover; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = bg; });
+    return btn;
+}
+
+function createNativeDialogOverlay(id, { zIndex = "100000", width = "min(420px, calc(100vw - 32px))" } = {}) {
+    const existing = document.getElementById(id);
     if (existing) existing.remove();
 
     const overlay = document.createElement("div");
-    overlay.id = "runpod-redirect-overlay";
+    overlay.id = id;
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
     Object.assign(overlay.style, {
         position: "fixed",
         inset: "0",
-        background: "rgba(0, 0, 0, 0.8)",
-        backdropFilter: "blur(8px)",
-        webkitBackdropFilter: "blur(8px)",
+        background: "rgba(0, 0, 0, 0.55)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        zIndex: "1000000",
+        zIndex,
         fontFamily: "var(--font-inter, Inter, sans-serif)",
-        color: "#fff"
+        color: "var(--input-text, var(--foreground, #e5e7eb))"
     });
 
     const card = document.createElement("div");
     Object.assign(card.style, {
-        background: "var(--base-background, var(--comfy-menu-bg, #1f2128))",
+        background: "var(--base-background, var(--interface-panel-surface, var(--comfy-menu-bg, #1f2128)))",
         border: "1px solid var(--interface-stroke, var(--border-color, #3c4452))",
-        borderRadius: "16px",
-        padding: "32px",
-        textAlign: "center",
+        borderRadius: "12px",
+        padding: "20px 24px",
+        width,
+        boxSizing: "border-box",
         boxShadow: "var(--shadow-interface, 0 12px 28px rgba(0, 0, 0, 0.45))",
-        minWidth: "320px"
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
+        textAlign: "left"
+    });
+
+    overlay.appendChild(card);
+    return { overlay, card };
+}
+
+// Show redirect countdown dialog
+function showRedirectCountdown() {
+    const { overlay, card } = createNativeDialogOverlay("runpod-redirect-overlay", {
+        zIndex: "1000000",
+        width: "min(400px, calc(100vw - 32px))"
     });
 
     const title = document.createElement("div");
     title.textContent = "Pod Deactivated";
     Object.assign(title.style, {
-        fontSize: "20px",
+        fontSize: "16px",
         fontWeight: "600",
-        marginBottom: "12px",
-        color: "#ff4b4b"
+        lineHeight: "1.3",
+        color: "var(--destructive-background, #ef4444)"
     });
 
-    const desc = document.createElement("div");
-    desc.textContent = "Your pod is shutting down. Redirecting to RunPod Console in:";
-    Object.assign(desc.style, {
-        fontSize: "14px",
-        color: "var(--descrip-text, #c4c9d4)",
-        marginBottom: "20px"
-    });
-
-    const number = document.createElement("div");
     let seconds = 5;
-    number.textContent = seconds;
-    Object.assign(number.style, {
-        fontSize: "72px",
-        fontWeight: "700",
-        fontFamily: "monospace",
-        color: "#fff",
-        marginBottom: "16px"
+    const desc = document.createElement("div");
+    Object.assign(desc.style, {
+        fontSize: "13px",
+        lineHeight: "1.5",
+        color: "var(--descrip-text, var(--muted-foreground, #c4c9d4))"
     });
+    const secSpan = document.createElement("span");
+    secSpan.textContent = `${seconds}s`;
+    Object.assign(secSpan.style, {
+        fontWeight: "600",
+        color: "var(--foreground, #fff)",
+        fontVariantNumeric: "tabular-nums"
+    });
+    desc.append("Your pod is shutting down. Redirecting to RunPod Console in ", secSpan, ".");
+
+    const footer = document.createElement("div");
+    Object.assign(footer.style, {
+        display: "flex",
+        justifyContent: "flex-end",
+        gap: "8px",
+        marginTop: "4px"
+    });
+    const btnNow = createNativeDialogButton("Open Console Now", "secondary");
+    btnNow.addEventListener("click", () => {
+        window.location.href = "https://console.runpod.io/";
+    });
+    footer.appendChild(btnNow);
 
     card.appendChild(title);
     card.appendChild(desc);
-    card.appendChild(number);
-    overlay.appendChild(card);
+    card.appendChild(footer);
     document.body.appendChild(overlay);
 
     const timer = setInterval(() => {
@@ -668,7 +731,7 @@ function showRedirectCountdown() {
             clearInterval(timer);
             window.location.href = "https://console.runpod.io/";
         } else {
-            number.textContent = seconds;
+            secSpan.textContent = `${seconds}s`;
         }
     }, 1000);
 }
@@ -693,46 +756,9 @@ async function executeShutdown(overrideAction) {
 
 // Show restarting overlay and reconnection feedback
 function showRestartingOverlay() {
-    const existing = document.getElementById("runpod-restarting-overlay");
-    if (existing) existing.remove();
-
-    const overlay = document.createElement("div");
-    overlay.id = "runpod-restarting-overlay";
-    Object.assign(overlay.style, {
-        position: "fixed",
-        inset: "0",
-        background: "rgba(0, 0, 0, 0.8)",
-        backdropFilter: "blur(8px)",
-        webkitBackdropFilter: "blur(8px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+    const { overlay, card } = createNativeDialogOverlay("runpod-restarting-overlay", {
         zIndex: "1000000",
-        fontFamily: "var(--font-inter, Inter, sans-serif)",
-        color: "#fff"
-    });
-
-    const card = document.createElement("div");
-    Object.assign(card.style, {
-        background: "var(--base-background, var(--comfy-menu-bg, #1f2128))",
-        border: "1px solid var(--interface-stroke, var(--border-color, #3c4452))",
-        borderRadius: "16px",
-        padding: "32px",
-        textAlign: "center",
-        boxShadow: "var(--shadow-interface, 0 12px 28px rgba(0, 0, 0, 0.45))",
-        minWidth: "340px",
-        maxWidth: "420px"
-    });
-
-    const spinner = document.createElement("div");
-    Object.assign(spinner.style, {
-        width: "48px",
-        height: "48px",
-        border: "4px solid rgba(255, 255, 255, 0.15)",
-        borderTop: "4px solid var(--primary-background, #6366f1)",
-        borderRadius: "50%",
-        animation: "runpod-spin 1s linear infinite",
-        margin: "0 auto 20px auto"
+        width: "min(400px, calc(100vw - 32px))"
     });
 
     if (!document.getElementById("runpod-spinner-keyframes")) {
@@ -742,36 +768,55 @@ function showRestartingOverlay() {
         document.head.appendChild(style);
     }
 
+    const header = document.createElement("div");
+    Object.assign(header.style, {
+        display: "flex",
+        alignItems: "center",
+        gap: "10px"
+    });
+
+    const spinner = document.createElement("div");
+    Object.assign(spinner.style, {
+        width: "16px",
+        height: "16px",
+        border: "2px solid rgba(255, 255, 255, 0.16)",
+        borderTop: "2px solid var(--primary-background, #6366f1)",
+        borderRadius: "50%",
+        animation: "runpod-spin 0.8s linear infinite",
+        flexShrink: "0"
+    });
+
     const title = document.createElement("div");
     title.textContent = "Restarting ComfyUI";
     Object.assign(title.style, {
-        fontSize: "20px",
+        fontSize: "16px",
         fontWeight: "600",
-        marginBottom: "12px",
-        color: "var(--primary-background, #818cf8)"
+        lineHeight: "1.3",
+        color: "var(--foreground, #f4f4f5)"
     });
 
+    header.appendChild(spinner);
+    header.appendChild(title);
+
     const desc = document.createElement("div");
-    desc.textContent = "ComfyUI server is restarting. Reconnecting automatically...";
+    desc.textContent = "ComfyUI server is restarting. Reconnecting automatically once ready.";
     Object.assign(desc.style, {
-        fontSize: "14px",
-        color: "var(--descrip-text, #c4c9d4)",
-        marginBottom: "12px"
+        fontSize: "13px",
+        lineHeight: "1.5",
+        color: "var(--descrip-text, var(--muted-foreground, #c4c9d4))"
     });
 
     const statusText = document.createElement("div");
     statusText.textContent = "Sending restart command...";
     Object.assign(statusText.style, {
-        fontSize: "13px",
-        color: "#9ca3af",
-        fontStyle: "italic"
+        fontSize: "12px",
+        color: "var(--muted-foreground, #9ca3af)",
+        fontVariantNumeric: "tabular-nums"
     });
 
-    card.appendChild(spinner);
-    card.appendChild(title);
+    card.appendChild(header);
     card.appendChild(desc);
     card.appendChild(statusText);
-    overlay.appendChild(card);
     document.body.appendChild(overlay);
 
     return {
@@ -783,9 +828,18 @@ function showRestartingOverlay() {
 
 // Perform ComfyUI server restart
 async function executeRestart() {
-    if (!confirm("Are you sure you want to restart ComfyUI?")) {
-        return;
+    const dialogConfirm = app?.extensionManager?.dialog?.confirm;
+    let confirmed = false;
+    if (typeof dialogConfirm === "function") {
+        confirmed = await dialogConfirm({
+            title: "Restart ComfyUI",
+            message: "Are you sure you want to restart ComfyUI?",
+            type: "default"
+        });
+    } else {
+        confirmed = confirm("Are you sure you want to restart ComfyUI?");
     }
+    if (!confirmed) return;
 
     const ui = showRestartingOverlay();
     
@@ -1499,120 +1553,76 @@ function toggleRunPodMenu(event) {
     syncRunPodButtonOpenState(true);
 }
 
-// Centered Glassmorphism Countdown Overlay
+// Native-style ComfyUI Idle Shutdown Countdown Dialog
 function showCountdownOverlay() {
+    const mins = Math.floor(timerState.secondsLeft / 60);
+    const secs = timerState.secondsLeft % 60;
+    const formattedTime = `${mins}:${secs.toString().padStart(2, "0")}`;
+
     if (countdownOverlay) {
         const secText = countdownOverlay.querySelector(".rp-countdown-seconds");
         if (secText) {
-            const mins = Math.floor(timerState.secondsLeft / 60);
-            const secs = timerState.secondsLeft % 60;
-            secText.textContent = `${mins}:${secs.toString().padStart(2, "0")}`;
+            secText.textContent = formattedTime;
         }
         return;
     }
 
-    const overlay = document.createElement("div");
-    overlay.id = "runpod-countdown-overlay";
-    Object.assign(overlay.style, {
-        position: "fixed",
-        inset: "0",
-        background: "rgba(0, 0, 0, 0.65)",
-        backdropFilter: "blur(12px)",
-        webkitBackdropFilter: "blur(12px)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
+    const { overlay, card } = createNativeDialogOverlay("runpod-countdown-overlay", {
         zIndex: "100000",
-        fontFamily: "inherit",
-        animation: "rpFadeIn 0.3s ease forwards"
-    });
-
-    const styleTag = document.createElement("style");
-    styleTag.textContent = `
-        @keyframes rpFadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes rpPulse { 
-            0% { transform: scale(1); filter: drop-shadow(0 0 0px rgba(255, 75, 75, 0)); }
-            50% { transform: scale(1.05); filter: drop-shadow(0 0 15px rgba(255, 75, 75, 0.4)); }
-            100% { transform: scale(1); filter: drop-shadow(0 0 0px rgba(255, 75, 75, 0)); }
-        }
-    `;
-    document.head.appendChild(styleTag);
-
-    const card = document.createElement("div");
-    Object.assign(card.style, {
-        background: "var(--modal-panel-background, #1f2128)",
-        border: "1px solid rgba(255, 75, 75, 0.3)",
-        borderRadius: "16px",
-        padding: "32px",
-        width: "360px",
-        textAlign: "center",
-        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.5)"
+        width: "min(420px, calc(100vw - 32px))"
     });
 
     const title = document.createElement("div");
-    title.textContent = "⚠️ Pod Shutting Down";
+    title.textContent = "Pod Shutting Down";
     Object.assign(title.style, {
-        fontSize: "18px",
+        fontSize: "16px",
         fontWeight: "600",
-        color: "var(--desc-text, #ff4b4b)",
-        marginBottom: "16px"
+        lineHeight: "1.3",
+        color: "var(--destructive-background, #ef4444)"
     });
 
-    const mins = Math.floor(timerState.secondsLeft / 60);
-    const secs = timerState.secondsLeft % 60;
-    const timeDisplay = document.createElement("div");
+    const desc = document.createElement("div");
+    Object.assign(desc.style, {
+        fontSize: "13px",
+        lineHeight: "1.5",
+        color: "var(--descrip-text, var(--muted-foreground, #c4c9d4))"
+    });
+
+    const timeDisplay = document.createElement("span");
     timeDisplay.className = "rp-countdown-seconds";
-    timeDisplay.textContent = `${mins}:${secs.toString().padStart(2, "0")}`;
+    timeDisplay.textContent = formattedTime;
     Object.assign(timeDisplay.style, {
-        fontSize: "48px",
-        fontWeight: "700",
-        fontFamily: "monospace",
-        color: "var(--input-text, #fff)",
-        marginBottom: "24px",
-        animation: timerState.secondsLeft < 30 ? "rpPulse 1.2s infinite ease-in-out" : "none"
+        fontWeight: "600",
+        color: "var(--destructive-background, #ef4444)",
+        fontVariantNumeric: "tabular-nums"
+    });
+    desc.append("No active jobs detected. This pod will automatically shut down in ", timeDisplay, ".");
+
+    const footer = document.createElement("div");
+    Object.assign(footer.style, {
+        display: "flex",
+        justifyContent: "flex-end",
+        gap: "8px",
+        marginTop: "4px"
     });
 
-    const btnReset = document.createElement("button");
-    btnReset.textContent = `Reset Timer (${getConfiguredMinutes()} min)`;
-    Object.assign(btnReset.style, {
-        width: "100%",
-        padding: "12px",
-        border: "none",
-        borderRadius: "8px",
-        background: "var(--comfy-menu-primary-bg, #007bff)",
-        color: "#fff",
-        fontWeight: "600",
-        cursor: "pointer",
-        marginBottom: "10px",
-        fontSize: "14px"
-    });
-    btnReset.addEventListener("click", () => {
-        resetTimer();
-    });
-
-    const btnShutdown = document.createElement("button");
-    btnShutdown.textContent = "Shut Down Now";
-    Object.assign(btnShutdown.style, {
-        width: "100%",
-        padding: "12px",
-        border: "1px solid rgba(255, 75, 75, 0.4)",
-        borderRadius: "8px",
-        background: "transparent",
-        color: "#ff4b4b",
-        fontWeight: "600",
-        cursor: "pointer",
-        fontSize: "14px"
-    });
+    const btnShutdown = createNativeDialogButton("Shut Down Now", "secondary");
     btnShutdown.addEventListener("click", () => {
         hideCountdownOverlay();
         executeShutdown();
     });
 
+    const btnReset = createNativeDialogButton(`Reset Timer (${getConfiguredMinutes()} min)`, "primary");
+    btnReset.addEventListener("click", () => {
+        resetTimer();
+    });
+
+    footer.appendChild(btnShutdown);
+    footer.appendChild(btnReset);
+
     card.appendChild(title);
-    card.appendChild(timeDisplay);
-    card.appendChild(btnReset);
-    card.appendChild(btnShutdown);
-    overlay.appendChild(card);
+    card.appendChild(desc);
+    card.appendChild(footer);
     document.body.appendChild(overlay);
     countdownOverlay = overlay;
 }
