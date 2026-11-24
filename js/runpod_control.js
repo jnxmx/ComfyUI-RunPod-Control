@@ -1506,58 +1506,6 @@ app.registerExtension({
             }
         },
         {
-            id: "runpod.filebrowser_type",
-            category: ["RunPod Control", "FileBrowser", "URL Mode"],
-            name: "FileBrowser URL Mode",
-            type: "combo",
-            defaultValue: "relative_path",
-            tooltip: "Choose whether FileBrowser is served as a subpath on Comfy's URL (via Nginx proxy) or on a separate RunPod port.",
-            options: [
-                { value: "relative_path", text: "ComfyUI Subpath (e.g. /files/ via Nginx)" },
-                { value: "separate_port", text: "Separate Proxy Port (e.g. 8080)" }
-            ],
-            onChange() {
-                fetchRunPodStatus().then(() => queueUpdateUI());
-            }
-        },
-        {
-            id: "runpod.filebrowser_relative_path",
-            category: ["RunPod Control", "FileBrowser", "Relative Path"],
-            name: "FileBrowser Relative Path",
-            type: "text",
-            defaultValue: "/files/",
-            tooltip: "The subpath route on your main URL that routes to FileBrowser.",
-            onChange() {
-                fetchRunPodStatus().then(() => queueUpdateUI());
-            }
-        },
-        {
-            id: "runpod.filebrowser_port",
-            category: ["RunPod Control", "FileBrowser", "Local Port"],
-            name: "FileBrowser Local Port",
-            type: "number",
-            defaultValue: 8080,
-            tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active).",
-            onChange() {
-                fetchRunPodStatus().then(() => queueUpdateUI());
-            }
-        },
-        {
-            id: "runpod.filebrowser_visibility",
-            category: ["RunPod Control", "FileBrowser", "Visibility"],
-            name: "FileBrowser Visibility",
-            type: "combo",
-            defaultValue: "auto_detect",
-            tooltip: "Choose whether the button should auto-hide when the FileBrowser port check fails, or be permanently displayed.",
-            options: [
-                { value: "auto_detect", text: "Auto-detect service status" },
-                { value: "always_show", text: "Always show button" }
-            ],
-            onChange() {
-                fetchRunPodStatus().then(() => queueUpdateUI());
-            }
-        },
-        {
             id: "runpod.shutdown_action",
             category: ["RunPod Control", "Shutdown Timer", "Shutdown Behavior"],
             name: "Shutdown Behavior",
@@ -1639,7 +1587,7 @@ app.registerExtension({
         {
             id: "runpod.monitor.show_cpu",
             category: ["RunPod Control", "Resource Monitor", "Show CPU"],
-            name: "Show CPU (Crystools)",
+            name: "Show CPU",
             type: "boolean",
             defaultValue: false,
             tooltip: "Display CPU utilization gauge.",
@@ -1650,7 +1598,7 @@ app.registerExtension({
         {
             id: "runpod.monitor.show_temp",
             category: ["RunPod Control", "Resource Monitor", "Show GPU Temp"],
-            name: "Show GPU Temp (Crystools)",
+            name: "Show GPU Temp",
             type: "boolean",
             defaultValue: false,
             tooltip: "Display GPU temperature gauge (°C).",
@@ -1683,6 +1631,58 @@ app.registerExtension({
             tooltip: "Filesystem path to monitor for HDD usage.",
             onChange() {
                 pollResourceMonitorOnce();
+            }
+        },
+        {
+            id: "runpod.filebrowser_type",
+            category: ["RunPod Control", "FileBrowser", "URL Mode"],
+            name: "FileBrowser URL Mode",
+            type: "combo",
+            defaultValue: "relative_path",
+            tooltip: "Choose whether FileBrowser is served as a subpath on Comfy's URL (via Nginx proxy) or on a separate RunPod port.",
+            options: [
+                { value: "relative_path", text: "ComfyUI Subpath (e.g. /files/ via Nginx)" },
+                { value: "separate_port", text: "Separate Proxy Port (e.g. 8080)" }
+            ],
+            onChange() {
+                fetchRunPodStatus().then(() => queueUpdateUI());
+            }
+        },
+        {
+            id: "runpod.filebrowser_relative_path",
+            category: ["RunPod Control", "FileBrowser", "Relative Path"],
+            name: "FileBrowser Relative Path",
+            type: "text",
+            defaultValue: "/files/",
+            tooltip: "The subpath route on your main URL that routes to FileBrowser.",
+            onChange() {
+                fetchRunPodStatus().then(() => queueUpdateUI());
+            }
+        },
+        {
+            id: "runpod.filebrowser_port",
+            category: ["RunPod Control", "FileBrowser", "Local Port"],
+            name: "FileBrowser Local Port",
+            type: "number",
+            defaultValue: 8080,
+            tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active).",
+            onChange() {
+                fetchRunPodStatus().then(() => queueUpdateUI());
+            }
+        },
+        {
+            id: "runpod.filebrowser_visibility",
+            category: ["RunPod Control", "FileBrowser", "Visibility"],
+            name: "FileBrowser Visibility",
+            type: "combo",
+            defaultValue: "auto_detect",
+            tooltip: "Choose whether the button should auto-hide when the FileBrowser port check fails, or be permanently displayed.",
+            options: [
+                { value: "auto_detect", text: "Auto-detect service status" },
+                { value: "always_show", text: "Always show button" }
+            ],
+            onChange() {
+                fetchRunPodStatus().then(() => queueUpdateUI());
             }
         }
     ],
