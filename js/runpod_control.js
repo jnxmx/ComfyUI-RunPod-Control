@@ -147,17 +147,8 @@ function isResourceMonitorEnabled() {
     return getMonitorSetting("runpod.monitor.enabled", true) !== false;
 }
 
-function getMonitorColor(value, isTemp = false) {
-    if (isTemp) {
-        if (value < 60) return "#6764f6";
-        if (value < 75) return "#38bdf8";
-        if (value < 85) return "#f59e0b";
-        return "#ef4444";
-    }
-    if (value < 50) return "#6764f6";
-    if (value < 75) return "#38bdf8";
-    if (value < 90) return "#f59e0b";
-    return "#ef4444";
+function getMonitorColor(_value, _isTemp = false) {
+    return "var(--primary-background, #0b8ce9)";
 }
 
 function formatBytesGiB(bytes) {
