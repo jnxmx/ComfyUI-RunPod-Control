@@ -587,70 +587,230 @@ async function fetchRunPodStatus() {
     }
 }
 
-function createNativeDialogButton(label, variant = "secondary") {
+const RUNPOD_DIALOG_STYLE_ID = "runpod-control-native-dialog-style";
+
+function ensureNativeDialogStyles() {
+    if (document.getElementById(RUNPOD_DIALOG_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = RUNPOD_DIALOG_STYLE_ID;
+    style.textContent = `
+        @keyframes runpod-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        :where(.rp-ds-overlay) {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.7);
+        }
+        :where(.rp-ds-dialog) {
+            display: flex;
+            flex-direction: column;
+            background: var(--base-background, var(--comfy-menu-bg, #1f2128));
+            color: var(--base-foreground, var(--input-text, #f4f4f5));
+            border: 1px solid var(--border-default, var(--border-color, rgba(255, 255, 255, 0.12)));
+            border-radius: 16px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+            font-family: var(--font-inter, Inter, system-ui, sans-serif);
+            outline: none;
+            box-sizing: border-box;
+        }
+        :where(.rp-ds-header) {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 16px 16px 8px 16px;
+        }
+        :where(.rp-ds-content) {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 8px 16px;
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--muted-foreground, var(--descrip-text, #a1a1aa));
+        }
+        :where(.rp-ds-footer) {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 8px 16px 16px 16px;
+        }
+        :where(.rp-ds-btn) {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 32px;
+            padding: 0 12px;
+            border-radius: 8px;
+            border: none;
+            font-family: var(--font-inter, Inter, system-ui, sans-serif);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background-color 120ms ease, opacity 120ms ease;
+        }
+        :where(.rp-ds-btn-secondary) {
+            background: var(--secondary-background, rgba(255, 255, 255, 0.08));
+            color: var(--base-foreground, #f4f4f5);
+        }
+        :where(.rp-ds-btn-secondary:hover) {
+            background: var(--secondary-background-hover, rgba(255, 255, 255, 0.14));
+        }
+        :where(.rp-ds-btn-primary) {
+            background: var(--primary-background, #0b8ce9);
+            color: #ffffff;
+        }
+        :where(.rp-ds-btn-primary:hover) {
+            opacity: 0.9;
+        }
+        :where(.rp-ds-btn-destructive) {
+            background: var(--destructive-background, #ef4444);
+            color: #ffffff;
+        }
+        :where(.rp-ds-btn-destructive:hover) {
+            opacity: 0.9;
+        }
+        :where(.rp-ds-input) {
+            display: flex;
+            height: 36px;
+            width: 100%;
+            box-sizing: border-box;
+            border-radius: 8px;
+            border: 1px solid var(--border-default, rgba(255, 255, 255, 0.14));
+            background: var(--secondary-background, rgba(255, 255, 255, 0.06));
+            color: var(--base-foreground, #f4f4f5);
+            padding: 0 12px;
+            font-size: 14px;
+            outline: none;
+        }
+        :where(.rp-ds-input:focus) {
+            border-color: var(--primary-background, #0b8ce9);
+        }
+        :where(.rp-ds-close) {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--muted-foreground, #a1a1aa);
+            cursor: pointer;
+        }
+        :where(.rp-ds-close:hover) {
+            background: var(--secondary-background-hover, rgba(255, 255, 255, 0.08));
+            color: var(--base-foreground, #f4f4f5);
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function createNativeDialogButton(label, variant = "secondary", iconClass = "") {
+    ensureNativeDialogStyles();
     const btn = document.createElement("button");
     btn.type = "button";
-    const variantClass = variant === "primary"
-        ? "p-button-primary"
+    const base =
+        "rp-ds-btn relative inline-flex h-8 cursor-pointer touch-manipulation appearance-none items-center justify-center gap-1.5 rounded-lg border-none px-3 font-inter text-xs font-medium whitespace-nowrap transition-colors focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50";
+    const variantClasses = variant === "primary"
+        ? "rp-ds-btn-primary bg-primary text-foreground hover:bg-primary/90"
         : variant === "destructive"
-            ? "p-button-danger"
-            : "p-button-secondary";
-    btn.className = `p-button p-component p-button-sm ${variantClass}`;
+            ? "rp-ds-btn-destructive bg-destructive text-foreground hover:bg-destructive/90"
+            : "rp-ds-btn-secondary bg-secondary text-foreground hover:bg-accent";
+    btn.className = `${base} ${variantClasses}`;
+
+    if (iconClass) {
+        const icon = document.createElement("i");
+        icon.className = `${iconClass} size-3.5 shrink-0`;
+        icon.setAttribute("aria-hidden", "true");
+        btn.appendChild(icon);
+    }
 
     const labelSpan = document.createElement("span");
-    labelSpan.className = "p-button-label";
     labelSpan.textContent = label;
     btn.appendChild(labelSpan);
     return btn;
 }
 
-function createNativeDialogOverlay(id, { zIndex = "100000", width = "420px", title = "", titleColor = "" } = {}) {
+function createNativeDialogOverlay(id, { zIndex = "100000", width = "420px", title = "", onClose = null } = {}) {
+    ensureNativeDialogStyles();
     const existing = document.getElementById(id);
     if (existing) existing.remove();
 
     const mask = document.createElement("div");
     mask.id = id;
-    mask.className = "p-dialog-mask p-overlay-mask p-overlay-mask-enter";
-    Object.assign(mask.style, {
-        position: "fixed",
-        inset: "0",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex
-    });
+    mask.className = "rp-ds-overlay fixed inset-0 flex items-center justify-center bg-black/70";
+    mask.style.zIndex = zIndex;
 
     const dialog = document.createElement("div");
-    dialog.className = "p-dialog p-component";
+    dialog.className =
+        "rp-ds-dialog flex flex-col rounded-2xl border border-solid border-border bg-background text-foreground shadow-lg outline-none font-inter";
     dialog.setAttribute("role", "dialog");
     dialog.setAttribute("aria-modal", "true");
-    Object.assign(dialog.style, {
-        width,
-        maxWidth: "calc(100vw - 32px)"
-    });
+    dialog.style.width = width;
+    dialog.style.maxWidth = "calc(100vw - 2rem)";
 
     const header = document.createElement("div");
-    header.className = "p-dialog-header";
-    const titleEl = document.createElement("span");
-    titleEl.className = "p-dialog-title";
+    header.className = "rp-ds-header flex shrink-0 items-center justify-between gap-2 px-4 pt-4 pb-2";
+
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "flex min-w-0 items-center gap-2";
+
+    const titleEl = document.createElement("h2");
+    titleEl.className = "m-0 min-w-0 text-base font-semibold text-foreground";
     titleEl.textContent = title;
-    if (titleColor) {
-        titleEl.style.color = titleColor;
-    }
-    header.appendChild(titleEl);
+    titleWrap.appendChild(titleEl);
+    header.appendChild(titleWrap);
 
     const content = document.createElement("div");
-    content.className = "p-dialog-content";
+    content.className = "rp-ds-content flex min-h-0 flex-1 flex-col gap-2.5 px-4 py-2 text-sm text-muted-foreground";
 
     const footer = document.createElement("div");
-    footer.className = "p-dialog-footer";
+    footer.className = "rp-ds-footer flex shrink-0 items-center justify-end gap-2 px-4 pt-2 pb-4";
 
     dialog.appendChild(header);
     dialog.appendChild(content);
     dialog.appendChild(footer);
     mask.appendChild(dialog);
 
-    return { overlay: mask, card: dialog, header, titleEl, content, footer };
+    let keyHandler = null;
+    const teardown = () => {
+        if (keyHandler) {
+            document.removeEventListener("keydown", keyHandler, true);
+            keyHandler = null;
+        }
+        mask.remove();
+    };
+
+    if (typeof onClose === "function") {
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.setAttribute("aria-label", "Close");
+        closeBtn.className =
+            "rp-ds-close relative inline-flex size-8 shrink-0 cursor-pointer appearance-none items-center justify-center rounded-lg border-none bg-transparent text-muted-foreground transition-colors hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none";
+        closeBtn.innerHTML = `<i class="icon-[lucide--x] size-4" aria-hidden="true"></i>`;
+        closeBtn.addEventListener("click", () => onClose());
+        header.appendChild(closeBtn);
+
+        mask.addEventListener("mousedown", (e) => {
+            if (e.target === mask) onClose();
+        });
+        keyHandler = (e) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                onClose();
+            }
+        };
+        document.addEventListener("keydown", keyHandler, true);
+    }
+
+    return { overlay: mask, card: dialog, header, titleWrap, titleEl, content, footer, teardown };
 }
 
 // Show redirect countdown dialog
@@ -663,10 +823,10 @@ function showRedirectCountdown() {
 
     let seconds = 5;
     const desc = document.createElement("p");
-    Object.assign(desc.style, { margin: "0", fontSize: "0.875rem", lineHeight: "1.5" });
+    desc.className = "m-0 text-sm leading-relaxed text-muted-foreground";
     const secSpan = document.createElement("span");
+    secSpan.className = "font-semibold text-foreground tabular-nums";
     secSpan.textContent = `${seconds}s`;
-    Object.assign(secSpan.style, { fontWeight: "600", fontVariantNumeric: "tabular-nums" });
     desc.append("Your pod is shutting down. Redirecting to RunPod Console in ", secSpan, ".");
     content.appendChild(desc);
 
@@ -709,43 +869,31 @@ async function executeShutdown(overrideAction) {
 
 // Show restarting overlay and reconnection feedback
 function showRestartingOverlay() {
-    const { overlay, card, header, titleEl, content, footer } = createNativeDialogOverlay("runpod-restarting-overlay", {
+    const { overlay, titleWrap, titleEl, content, footer, teardown } = createNativeDialogOverlay("runpod-restarting-overlay", {
         zIndex: "1000000",
         width: "400px",
         title: "Restarting ComfyUI"
     });
-
-    if (!document.getElementById("runpod-spinner-keyframes")) {
-        const style = document.createElement("style");
-        style.id = "runpod-spinner-keyframes";
-        style.textContent = "@keyframes runpod-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }";
-        document.head.appendChild(style);
-    }
 
     const spinner = document.createElement("div");
     Object.assign(spinner.style, {
         width: "16px",
         height: "16px",
         border: "2px solid rgba(255, 255, 255, 0.16)",
-        borderTop: "2px solid var(--primary-background, #6366f1)",
+        borderTop: "2px solid var(--primary-background, #0b8ce9)",
         borderRadius: "50%",
         animation: "runpod-spin 0.8s linear infinite",
-        flexShrink: "0",
-        marginRight: "8px"
+        flexShrink: "0"
     });
-    header.insertBefore(spinner, titleEl);
+    titleWrap.insertBefore(spinner, titleEl);
 
     const desc = document.createElement("p");
+    desc.className = "m-0 text-sm leading-relaxed text-muted-foreground";
     desc.textContent = "ComfyUI server is restarting. Reconnecting automatically once ready.";
-    Object.assign(desc.style, { margin: "0 0 8px 0", fontSize: "0.875rem", lineHeight: "1.5" });
 
     const statusText = document.createElement("div");
+    statusText.className = "text-xs text-muted-foreground tabular-nums opacity-80";
     statusText.textContent = "Sending restart command...";
-    Object.assign(statusText.style, {
-        fontSize: "0.75rem",
-        opacity: "0.75",
-        fontVariantNumeric: "tabular-nums"
-    });
 
     content.appendChild(desc);
     content.appendChild(statusText);
@@ -759,7 +907,7 @@ function showRestartingOverlay() {
             footer.style.display = "flex";
             footer.appendChild(btn);
         },
-        remove: () => overlay.remove()
+        remove: teardown
     };
 }
 
@@ -1048,39 +1196,38 @@ class KillPodDialog {
     showKillConfirmation() {
         let timeLeft = 60;
         let timerInterval = null;
-
-        const { overlay, content, footer } = createNativeDialogOverlay("runpod-kill-modal", {
-            zIndex: "100002",
-            width: "440px",
-            title: "Terminate Pod (Kill Pod)"
-        });
-
-        const warningText = document.createElement("p");
-        warningText.textContent = "This will completely delete the pod and all generated files that hadn't been downloaded. This action is irreversible.";
-        Object.assign(warningText.style, { margin: "0 0 10px 0", fontSize: "0.875rem", lineHeight: "1.5" });
-
-        const countdownDisplay = document.createElement("div");
-        countdownDisplay.textContent = `Auto-terminating in ${timeLeft}s...`;
-        Object.assign(countdownDisplay.style, {
-            fontSize: "0.875rem",
-            fontWeight: "600",
-            color: "var(--destructive-background, #ef4444)",
-            fontVariantNumeric: "tabular-nums"
-        });
-
-        content.appendChild(warningText);
-        content.appendChild(countdownDisplay);
-
-        const btnCancel = createNativeDialogButton("Cancel", "secondary");
-        const btnConfirm = createNativeDialogButton("Kill Pod Now", "destructive");
+        let teardownFn = null;
 
         const cleanup = () => {
             if (timerInterval) {
                 clearInterval(timerInterval);
                 timerInterval = null;
             }
-            overlay.remove();
+            if (teardownFn) teardownFn();
         };
+
+        const { overlay, content, footer, teardown } = createNativeDialogOverlay("runpod-kill-modal", {
+            zIndex: "100002",
+            width: "440px",
+            title: "Terminate Pod (Kill Pod)",
+            onClose: cleanup
+        });
+        teardownFn = teardown;
+
+        const warningText = document.createElement("p");
+        warningText.className = "m-0 text-sm leading-relaxed text-muted-foreground";
+        warningText.textContent = "This will completely delete the pod and all generated files that hadn't been downloaded. This action is irreversible.";
+
+        const countdownDisplay = document.createElement("div");
+        countdownDisplay.className = "text-sm font-semibold text-destructive tabular-nums";
+        countdownDisplay.style.color = "var(--destructive-background, #ef4444)";
+        countdownDisplay.textContent = `Auto-terminating in ${timeLeft}s...`;
+
+        content.appendChild(warningText);
+        content.appendChild(countdownDisplay);
+
+        const btnCancel = createNativeDialogButton("Cancel", "secondary");
+        const btnConfirm = createNativeDialogButton("Kill Pod Now", "destructive", "icon-[lucide--trash-2]");
 
         btnCancel.onclick = cleanup;
         btnConfirm.onclick = () => {
@@ -1101,6 +1248,7 @@ class KillPodDialog {
         footer.appendChild(btnCancel);
         footer.appendChild(btnConfirm);
         document.body.appendChild(overlay);
+        btnCancel.focus();
     }
 }
 
@@ -1108,15 +1256,60 @@ let isApplyingTimerSetting = false;
 
 async function promptForTimerMinutes(defaultMins = 30) {
     const defStr = String(defaultMins > 0 ? defaultMins : 30);
-    const dialogPrompt = app?.extensionManager?.dialog?.prompt;
-    if (typeof dialogPrompt === "function") {
-        return await dialogPrompt({
+    return new Promise((resolve) => {
+        let settled = false;
+        let teardownFn = null;
+        const finish = (val) => {
+            if (settled) return;
+            settled = true;
+            if (teardownFn) teardownFn();
+            resolve(val);
+        };
+
+        const { overlay, content, footer, teardown } = createNativeDialogOverlay("runpod-timer-prompt-modal", {
+            zIndex: "100002",
+            width: "400px",
             title: "Enable Shutdown Timer",
-            message: "How many minutes should the shutdown timer be set for?",
-            defaultValue: defStr
+            onClose: () => finish(null)
         });
-    }
-    return window.prompt("How many minutes should the shutdown timer be set for?", defStr);
+        teardownFn = teardown;
+
+        const label = document.createElement("label");
+        label.className = "flex flex-col gap-2 text-sm text-muted-foreground";
+        label.textContent = "How many minutes should the shutdown timer be set for?";
+
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "1";
+        input.max = "1440";
+        input.step = "1";
+        input.value = defStr;
+        input.className =
+            "rp-ds-input flex h-9 w-full min-w-0 appearance-none rounded-lg border-none bg-secondary px-3 py-2 font-inter text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none";
+
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                finish(input.value);
+            }
+        });
+
+        label.appendChild(input);
+        content.appendChild(label);
+
+        const btnCancel = createNativeDialogButton("Cancel", "secondary");
+        const btnConfirm = createNativeDialogButton("Enable Timer", "primary", "icon-[lucide--check]");
+        btnCancel.onclick = () => finish(null);
+        btnConfirm.onclick = () => finish(input.value);
+
+        footer.appendChild(btnCancel);
+        footer.appendChild(btnConfirm);
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => {
+            input.focus();
+            input.select();
+        });
+    });
 }
 
 async function applyTimerToggle(nextEnabled, { promptMinutes = true } = {}) {
@@ -1387,16 +1580,12 @@ function showCountdownOverlay() {
     });
 
     const desc = document.createElement("p");
-    Object.assign(desc.style, { margin: "0", fontSize: "0.875rem", lineHeight: "1.5" });
+    desc.className = "m-0 text-sm leading-relaxed text-muted-foreground";
 
     const timeDisplay = document.createElement("span");
-    timeDisplay.className = "rp-countdown-seconds";
+    timeDisplay.className = "rp-countdown-seconds font-semibold text-destructive tabular-nums";
+    timeDisplay.style.color = "var(--destructive-background, #ef4444)";
     timeDisplay.textContent = formattedTime;
-    Object.assign(timeDisplay.style, {
-        fontWeight: "600",
-        color: "var(--destructive-background, #ef4444)",
-        fontVariantNumeric: "tabular-nums"
-    });
     desc.append("No active jobs detected. This pod will automatically shut down in ", timeDisplay, ".");
     content.appendChild(desc);
 
@@ -1739,7 +1928,7 @@ app.registerExtension({
                     const target = m.target;
                     if (target && target.closest && (
                         target.closest("#runpod-unified-dropdown") ||
-                        target.closest("#runpod-countdown-overlay") ||
+                        target.closest(".rp-ds-overlay") ||
                         target.closest(`#${RESOURCE_MONITOR_ID}`)
                     )) {
                         selfTriggered = true;
