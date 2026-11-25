@@ -210,8 +210,8 @@ function buildMiniBarHtml(label, pct, tooltip, isTemp = false) {
         : "height:0%;";
 
     return `
-        <div class="runpod-gauge-mini-item" title="${tooltip} (click to expand)" style="width:12px;height:32px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex-shrink:0;user-select:none;cursor:pointer;">
-            <div style="width:5px;height:18px;border-radius:999px;background:rgba(255,255,255,0.14);overflow:hidden;display:flex;align-items:flex-end;flex-shrink:0;">
+        <div class="runpod-gauge-mini-item" title="${tooltip} (click to expand)" style="width:8px;height:32px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex-shrink:0;user-select:none;cursor:pointer;">
+            <div style="width:4px;height:18px;border-radius:999px;background:rgba(255,255,255,0.14);overflow:hidden;display:flex;align-items:flex-end;flex-shrink:0;">
                 <div style="width:100%;border-radius:999px;transition:height 0.25s ease;${fillStyle}"></div>
             </div>
             <span style="font-family:Inter,system-ui,sans-serif;font-size:9px;font-weight:700;line-height:1;color:var(--foreground,#d4d6e0);">${letter}</span>
@@ -305,7 +305,7 @@ function renderResourceMonitor(data) {
 
     const compact = isResourceMonitorCompact();
     container.dataset.compact = compact ? "1" : "0";
-    container.style.gap = compact ? "4px" : "6px";
+    container.style.gap = compact ? "1px" : "6px";
     container.style.display = gauges.length > 0 ? "inline-flex" : "none";
     container.innerHTML = gauges.join("");
 }
