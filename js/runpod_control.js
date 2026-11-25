@@ -506,6 +506,16 @@ function getFileBrowserRelativePath() {
     return "/files/";
 }
 
+// Fetch configured FileBrowser enabled setting
+function getFileBrowserEnabled() {
+    const settingsUi = app?.ui?.settings;
+    if (settingsUi?.getSettingValue) {
+        const val = settingsUi.getSettingValue("runpod.filebrowser_enabled");
+        if (typeof val === "boolean") return val;
+    }
+    return true;
+}
+
 // Fetch configured FileBrowser visibility behavior
 function getFileBrowserVisibility() {
     const settingsUi = app?.ui?.settings;
@@ -582,8 +592,13 @@ async function fetchRunPodStatus() {
             timerState.running = timerState.enabled && !timerState.jobActive;
         }
         
+        const fbEnabled = getFileBrowserEnabled();
         const forceShow = getFileBrowserVisibility() === "always_show";
-        if (runpodStatus.is_runpod) {
+        if (!fbEnabled) {
+            runpodStatus.filebrowser_active = false;
+            runpodStatus.filebrowser_url = null;
+            runpodStatus.output_url = null;
+        } else if (runpodStatus.is_runpod) {
             if (runpodStatus.filebrowser_active || forceShow) {
                 // If forced, ensure active state is simulated
                 runpodStatus.filebrowser_active = true;
@@ -1260,7 +1275,7 @@ class KillPodDialog {
         const { overlay, content, footer, teardown } = createNativeDialogOverlay("runpod-kill-modal", {
             zIndex: "100002",
             width: "440px",
-            title: "Terminate Pod (Kill Pod)",
+            title: "Terminate Pod",
             onClose: cleanup
         });
         teardownFn = teardown;
@@ -1278,7 +1293,7 @@ class KillPodDialog {
         content.appendChild(countdownDisplay);
 
         const btnCancel = createNativeDialogButton("Cancel", "secondary");
-        const btnConfirm = createNativeDialogButton("Kill Pod Now", "destructive", "icon-[lucide--trash-2]");
+        const btnConfirm = createNativeDialogButton("Terminate Pod Now", "destructive", "icon-[lucide--trash-2]");
 
         btnCancel.onclick = cleanup;
         btnConfirm.onclick = () => {
@@ -1349,7 +1364,7 @@ async function promptForTimerMinutes(defaultMins = 30) {
         content.appendChild(label);
 
         const btnCancel = createNativeDialogButton("Cancel", "secondary");
-        const btnConfirm = createNativeDialogButton("Enable Timer", "primary", "icon-[lucide--check]");
+        const btnConfirm = createNativeDialogButton("Enable Timer", "primary");
         btnCancel.onclick = () => finish(null);
         btnConfirm.onclick = () => finish(input.value);
 
@@ -1494,6 +1509,7 @@ function ensureUnifiedDropdown(buttonEl) {
             trailingIconClass: "icon-[lucide--arrow-up-right]"
         }
     );
+    outputsBtn.classList.add("runpod-fb-link-item");
 
     const fbBtn = createItem(
         "FileBrowser",
@@ -1506,6 +1522,7 @@ function ensureUnifiedDropdown(buttonEl) {
             trailingIconClass: "icon-[lucide--arrow-up-right]"
         }
     );
+    fbBtn.classList.add("runpod-fb-link-item");
 
     const infoBtn = createItem(
         "Pod Info",
@@ -1545,13 +1562,13 @@ function ensureUnifiedDropdown(buttonEl) {
     );
 
     const killPodBtn = createItem(
-        "Kill Pod",
+        "Terminate Pod",
         () => {
             if (runpodStatus.pod_id) {
                 const dialog = new KillPodDialog();
                 dialog.showKillConfirmation();
             } else {
-                showToast("Kill Pod", "Pod ID not detected", "warn");
+                showToast("Terminate Pod", "Pod ID not detected", "warn");
             }
         },
         {
@@ -1589,6 +1606,10 @@ function toggleRunPodMenu(event) {
     }
 
     const menu = ensureUnifiedDropdown(btn);
+    const fbEnabled = getFileBrowserEnabled();
+    menu.querySelectorAll(".runpod-fb-link-item").forEach((el) => {
+        el.style.display = fbEnabled ? "" : "none";
+    });
     // Ensure toggle button text is current without overwriting the icon span
     const toggleLabel = Array.from(menu.querySelectorAll(".runpod-menu-item-label")).find((el) =>
         el.textContent.includes("shutdown timer")
@@ -1705,6 +1726,7 @@ app.registerExtension({
             name: "Enable Shutdown Timer",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 300,
             tooltip: "Controls whether the automatic idle shutdown countdown timer is enabled or disabled by default.",
             async onChange(value) {
                 if (isApplyingTimerSetting || typeof value !== "boolean") return;
@@ -1730,6 +1752,7 @@ app.registerExtension({
             name: "Shutdown Duration (minutes)",
             type: "number",
             defaultValue: 30,
+            sortOrder: 300,
             tooltip: "How long the pod should remain idle after all jobs finish before shutting down.",
             attrs: { min: 1, max: 1440, step: 1 },
             onChange(value) {
@@ -1751,6 +1774,7 @@ app.registerExtension({
             name: "Shutdown Behavior",
             type: "combo",
             defaultValue: "stop_and_remove",
+            sortOrder: 300,
             tooltip: "Select whether the timer should just stop the pod (retaining storage) or stop and remove/terminate it entirely.",
             options: [
                 { value: "stop_only", text: "Stop Only (keep disk & files)" },
@@ -1772,6 +1796,7 @@ app.registerExtension({
             name: "Enable Resource Monitor",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 200,
             tooltip: "Show compact RunPod-style resource gauges right next to the RunPod button.",
             onChange() {
                 updateButtonUI();
@@ -1786,6 +1811,7 @@ app.registerExtension({
             name: "Show RAM",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 200,
             tooltip: "Display container-aware RAM usage gauge.",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1797,6 +1823,7 @@ app.registerExtension({
             name: "Show GPU Utilization",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 200,
             tooltip: "Display GPU compute utilization gauge.",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1808,6 +1835,7 @@ app.registerExtension({
             name: "Show VRAM",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 200,
             tooltip: "Display GPU VRAM usage gauge.",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1819,6 +1847,7 @@ app.registerExtension({
             name: "Show HDD",
             type: "boolean",
             defaultValue: true,
+            sortOrder: 200,
             tooltip: "Display disk usage gauge.",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1830,6 +1859,7 @@ app.registerExtension({
             name: "Show CPU",
             type: "boolean",
             defaultValue: false,
+            sortOrder: 200,
             tooltip: "Display CPU utilization gauge.",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1841,6 +1871,7 @@ app.registerExtension({
             name: "Show GPU Temp",
             type: "boolean",
             defaultValue: false,
+            sortOrder: 200,
             tooltip: "Display GPU temperature gauge (°C).",
             onChange() {
                 renderResourceMonitor(lastMonitorData);
@@ -1852,6 +1883,7 @@ app.registerExtension({
             name: "Refresh Interval (seconds)",
             type: "slider",
             defaultValue: 1.5,
+            sortOrder: 200,
             attrs: { min: 0.5, max: 5, step: 0.5 },
             tooltip: "How often to poll hardware metrics from the pod.",
             onChange() {
@@ -1864,6 +1896,7 @@ app.registerExtension({
             name: "HDD Mount Path",
             type: "combo",
             defaultValue: "/workspace",
+            sortOrder: 200,
             options: [
                 { value: "/workspace", text: "Workspace Volume (/workspace)" },
                 { value: "/", text: "Container Root (/)" }
@@ -1874,11 +1907,24 @@ app.registerExtension({
             }
         },
         {
+            id: "runpod.filebrowser_enabled",
+            category: ["RunPod Control", "FileBrowser Links", "Enable"],
+            name: "Enable FileBrowser Links",
+            type: "boolean",
+            defaultValue: true,
+            sortOrder: 100,
+            tooltip: "Show Outputs and FileBrowser links in the RunPod menu.",
+            onChange() {
+                fetchRunPodStatus().then(() => queueUpdateUI());
+            }
+        },
+        {
             id: "runpod.filebrowser_type",
-            category: ["RunPod Control", "FileBrowser", "URL Mode"],
+            category: ["RunPod Control", "FileBrowser Links", "URL Mode"],
             name: "FileBrowser URL Mode",
             type: "combo",
             defaultValue: "relative_path",
+            sortOrder: 100,
             tooltip: "Choose whether FileBrowser is served as a subpath on Comfy's URL (via Nginx proxy) or on a separate RunPod port.",
             options: [
                 { value: "relative_path", text: "ComfyUI Subpath (e.g. /files/ via Nginx)" },
@@ -1890,10 +1936,11 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_relative_path",
-            category: ["RunPod Control", "FileBrowser", "Relative Path"],
+            category: ["RunPod Control", "FileBrowser Links", "Relative Path"],
             name: "FileBrowser Relative Path",
             type: "text",
             defaultValue: "/files/",
+            sortOrder: 100,
             tooltip: "The subpath route on your main URL that routes to FileBrowser.",
             onChange() {
                 fetchRunPodStatus().then(() => queueUpdateUI());
@@ -1901,10 +1948,11 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_port",
-            category: ["RunPod Control", "FileBrowser", "Local Port"],
+            category: ["RunPod Control", "FileBrowser Links", "Local Port"],
             name: "FileBrowser Local Port",
             type: "number",
             defaultValue: 8080,
+            sortOrder: 100,
             tooltip: "The local container port where the FileBrowser service is running (used to verify if the service is active).",
             onChange() {
                 fetchRunPodStatus().then(() => queueUpdateUI());
@@ -1912,10 +1960,11 @@ app.registerExtension({
         },
         {
             id: "runpod.filebrowser_visibility",
-            category: ["RunPod Control", "FileBrowser", "Visibility"],
+            category: ["RunPod Control", "FileBrowser Links", "Visibility"],
             name: "FileBrowser Visibility",
             type: "combo",
             defaultValue: "auto_detect",
+            sortOrder: 100,
             tooltip: "Choose whether the button should auto-hide when the FileBrowser port check fails, or be permanently displayed.",
             options: [
                 { value: "auto_detect", text: "Auto-detect service status" },
