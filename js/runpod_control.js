@@ -180,7 +180,49 @@ const GAUGE_CY = 15.6;
 const GAUGE_R = 14.3;
 const GAUGE_TRACK_D = describeArc(GAUGE_CX, GAUGE_CY, GAUGE_R, GAUGE_START_DEG, GAUGE_START_DEG + GAUGE_SPAN_DEG);
 
+const MONITOR_COMPACT_BREAKPOINT_PX = 1220;
+let monitorCompactOverride = null; // null = auto, true = forced mini, false = forced full
+let lastAutoCompact = typeof window !== "undefined" ? window.innerWidth <= MONITOR_COMPACT_BREAKPOINT_PX : false;
+
+function isResourceMonitorCompact() {
+    if (monitorCompactOverride !== null) return monitorCompactOverride;
+    return typeof window !== "undefined" ? window.innerWidth <= MONITOR_COMPACT_BREAKPOINT_PX : false;
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("resize", () => {
+        const autoCompact = window.innerWidth <= MONITOR_COMPACT_BREAKPOINT_PX;
+        if (autoCompact !== lastAutoCompact) {
+            lastAutoCompact = autoCompact;
+            monitorCompactOverride = null;
+            renderResourceMonitor(lastMonitorData);
+        }
+    });
+}
+
+function buildMiniBarHtml(label, pct, tooltip, isTemp = false) {
+    const valid = typeof pct === "number" && pct >= 0;
+    const clamped = valid ? Math.max(0, Math.min(100, pct)) : 0;
+    const color = valid ? getMonitorColor(isTemp ? pct : clamped, isTemp) : "rgba(255,255,255,0.2)";
+    const letter = label.charAt(0).toUpperCase();
+    const fillStyle = clamped > 0
+        ? `height:${clamped.toFixed(1)}%;min-height:2px;background:${color};`
+        : "height:0%;";
+
+    return `
+        <div class="runpod-gauge-mini-item" title="${tooltip} (click to expand)" style="width:12px;height:32px;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex-shrink:0;user-select:none;cursor:pointer;">
+            <div style="width:5px;height:18px;border-radius:999px;background:rgba(255,255,255,0.14);overflow:hidden;display:flex;align-items:flex-end;flex-shrink:0;">
+                <div style="width:100%;border-radius:999px;transition:height 0.25s ease;${fillStyle}"></div>
+            </div>
+            <span style="font-family:Inter,system-ui,sans-serif;font-size:9px;font-weight:700;line-height:1;color:var(--foreground,#d4d6e0);">${letter}</span>
+        </div>
+    `;
+}
+
 function buildGaugeSvg(label, pct, displayValue, tooltip, isTemp = false) {
+    if (isResourceMonitorCompact()) {
+        return buildMiniBarHtml(label, pct, tooltip, isTemp);
+    }
     const valid = typeof pct === "number" && pct >= 0;
     const clamped = valid ? Math.max(0, Math.min(100, pct)) : 0;
     const color = valid ? getMonitorColor(isTemp ? pct : clamped, isTemp) : "rgba(255,255,255,0.2)";
@@ -191,7 +233,7 @@ function buildGaugeSvg(label, pct, displayValue, tooltip, isTemp = false) {
     const labelFontSize = label.length >= 4 ? "7.8" : "8.8";
 
     return `
-        <div class="runpod-gauge-item" title="${tooltip}" style="position:relative;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;user-select:none;cursor:default;">
+        <div class="runpod-gauge-item" title="${tooltip} (click to collapse)" style="position:relative;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;user-select:none;cursor:pointer;">
             <svg viewBox="0 0 36 36" width="32" height="32" style="display:block;overflow:visible;">
                 <path d="${GAUGE_TRACK_D}" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="2.6" stroke-linecap="round" />
                 ${fillPath}
@@ -261,6 +303,9 @@ function renderResourceMonitor(data) {
         gauges.push(buildGaugeSvg("HDD", val, txt, tip));
     }
 
+    const compact = isResourceMonitorCompact();
+    container.dataset.compact = compact ? "1" : "0";
+    container.style.gap = compact ? "4px" : "6px";
     container.style.display = gauges.length > 0 ? "inline-flex" : "none";
     container.innerHTML = gauges.join("");
 }
@@ -333,7 +378,13 @@ function updateResourceMonitorPlacement(btn) {
             background: "transparent",
             flexShrink: "0",
             verticalAlign: "middle",
+            cursor: "pointer",
             order: "9999"
+        });
+        container.addEventListener("click", (e) => {
+            e.stopPropagation();
+            monitorCompactOverride = !isResourceMonitorCompact();
+            renderResourceMonitor(lastMonitorData);
         });
     }
 
