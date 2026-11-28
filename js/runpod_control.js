@@ -459,16 +459,10 @@ function showToast(summary, detail, severity = "info") {
     }
 }
 
-// Fetch configured duration from settings or env
+// Fetch configured duration from env or backend timer state
 function getConfiguredMinutes() {
     if (runpodStatus.timer?.env_duration_minutes) {
         return runpodStatus.timer.env_duration_minutes;
-    }
-    const settingsUi = app?.ui?.settings;
-    if (settingsUi?.getSettingValue) {
-        let val = settingsUi.getSettingValue("runpod.shutdown_minutes");
-        if (typeof val === "string") val = parseInt(val, 10);
-        if (typeof val === "number" && !isNaN(val) && val > 0) return val;
     }
     if (runpodStatus.timer?.duration_seconds) {
         return Math.round(runpodStatus.timer.duration_seconds / 60);
@@ -536,14 +530,39 @@ function getShutdownAction() {
     return "stop_and_remove";
 }
 
-// Fetch configured shutdown timer enabled setting
-function getShutdownTimerEnabled() {
-    const settingsUi = app?.ui?.settings;
-    if (settingsUi?.getSettingValue) {
-        const val = settingsUi.getSettingValue("runpod.enable_shutdown_timer");
-        if (typeof val === "boolean") return val;
+// Remove legacy shutdown timer settings if they exist in ComfyUI settings/storage
+function cleanupLegacyTimerSetting() {
+    const legacyKeys = ["runpod.enable_shutdown_timer", "runpod.shutdown_minutes"];
+    for (const legacyKey of legacyKeys) {
+        try {
+            if (typeof localStorage !== "undefined") {
+                localStorage.removeItem(`Comfy.Settings.${legacyKey}`);
+                localStorage.removeItem(legacyKey);
+            }
+        } catch (e) {}
     }
-    return null;
+
+    const settingsUi = app?.ui?.settings;
+    if (!settingsUi) return;
+
+    let removed = false;
+    for (const legacyKey of legacyKeys) {
+        const hasInValues =
+            settingsUi.settingsValues &&
+            Object.prototype.hasOwnProperty.call(settingsUi.settingsValues, legacyKey);
+        const currentVal = settingsUi.getSettingValue?.(legacyKey);
+
+        if (hasInValues || currentVal !== undefined) {
+            if (settingsUi.settingsValues) {
+                delete settingsUi.settingsValues[legacyKey];
+            }
+            removed = true;
+        }
+    }
+
+    if (removed && typeof api?.storeSettings === "function" && settingsUi.settingsValues) {
+        Promise.resolve(api.storeSettings(settingsUi.settingsValues)).catch(() => {});
+    }
 }
 
 // Extract clean pod ID and active ComfyUI port from RunPod proxy hostname
@@ -1318,8 +1337,6 @@ class KillPodDialog {
     }
 }
 
-let isApplyingTimerSetting = false;
-
 async function promptForTimerMinutes(defaultMins = 30) {
     const defStr = String(defaultMins > 0 ? defaultMins : 30);
     return new Promise((resolve) => {
@@ -1410,19 +1427,6 @@ async function applyTimerToggle(nextEnabled, { promptMinutes = true } = {}) {
                 timerState.secondsLeft = data.timer.seconds_left;
                 timerState.jobActive = data.timer.job_active;
                 timerState.running = timerState.enabled && !timerState.jobActive;
-                const settingsUi = app?.ui?.settings;
-                if (settingsUi?.setSettingValue) {
-                    isApplyingTimerSetting = true;
-                    try {
-                        settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
-                        if (durationSeconds !== null) {
-                            settingsUi.setSettingValue("runpod.shutdown_minutes", Math.round(durationSeconds / 60));
-                        }
-                    } catch (e) {
-                    } finally {
-                        isApplyingTimerSetting = false;
-                    }
-                }
             }
         }
     } catch (e) {
@@ -1721,54 +1725,6 @@ app.registerExtension({
     ],
     settings: [
         {
-            id: "runpod.enable_shutdown_timer",
-            category: ["RunPod Control", "Shutdown Timer", "Enable Timer"],
-            name: "Enable Shutdown Timer",
-            type: "boolean",
-            defaultValue: true,
-            sortOrder: 300,
-            tooltip: "Controls whether the automatic idle shutdown countdown timer is enabled or disabled by default.",
-            async onChange(value) {
-                if (isApplyingTimerSetting || typeof value !== "boolean") return;
-                if (value === timerState.enabled) return;
-                const applied = await applyTimerToggle(value, { promptMinutes: value });
-                if (!applied) {
-                    const settingsUi = app?.ui?.settings;
-                    if (settingsUi?.setSettingValue) {
-                        isApplyingTimerSetting = true;
-                        try {
-                            settingsUi.setSettingValue("runpod.enable_shutdown_timer", timerState.enabled);
-                        } catch (e) {
-                        } finally {
-                            isApplyingTimerSetting = false;
-                        }
-                    }
-                }
-            }
-        },
-        {
-            id: "runpod.shutdown_minutes",
-            category: ["RunPod Control", "Shutdown Timer", "Duration"],
-            name: "Shutdown Duration (minutes)",
-            type: "number",
-            defaultValue: 30,
-            sortOrder: 300,
-            tooltip: "How long the pod should remain idle after all jobs finish before shutting down.",
-            attrs: { min: 1, max: 1440, step: 1 },
-            onChange(value) {
-                if (isApplyingTimerSetting) return;
-                let val = value;
-                if (typeof val === "string") val = parseInt(val, 10);
-                if (typeof val === "number" && !isNaN(val) && val > 0) {
-                    fetch("/runpod/timer", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "set_duration", duration_seconds: val * 60 })
-                    }).then(() => fetchRunPodStatus()).then(() => updateButtonUI());
-                }
-            }
-        },
-        {
             id: "runpod.shutdown_action",
             category: ["RunPod Control", "Shutdown Timer", "Shutdown Behavior"],
             name: "Shutdown Behavior",
@@ -1976,44 +1932,20 @@ app.registerExtension({
         }
     ],
     setup() {
+        cleanupLegacyTimerSetting();
         fetchRunPodStatus().then((isRunPod) => {
             if (!isRunPod) return;
 
             // Sync current client settings with backend on startup
             const syncSettings = async () => {
-                const envMins = runpodStatus.timer?.env_duration_minutes;
-                const settingsUi = app?.ui?.settings;
-
-                if (envMins) {
-                    if (settingsUi?.setSettingValue) {
-                        try {
-                            settingsUi.setSettingValue("runpod.shutdown_minutes", envMins);
-                        } catch (e) {}
-                    }
-                } else {
-                    const mins = getConfiguredMinutes();
-                    await fetch("/runpod/timer", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "set_duration", duration_seconds: mins * 60 })
-                    });
-                }
+                cleanupLegacyTimerSetting();
                 const act = getShutdownAction();
-                const timerPref = getShutdownTimerEnabled();
                 await fetch("/runpod/timer", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ action: "set_shutdown_action", shutdown_action: act })
                 });
 
-                // Backend is authoritative for timer enabled state across restarts
-                // (env_disabled + persisted runpod_timer_state.json).
-                const backendEnabled = Boolean(runpodStatus.timer?.enabled);
-                if (settingsUi?.setSettingValue && timerPref !== backendEnabled) {
-                    try {
-                        settingsUi.setSettingValue("runpod.enable_shutdown_timer", backendEnabled);
-                    } catch (e) {}
-                }
                 await fetchRunPodStatus();
                 updateButtonUI();
             };
